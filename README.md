@@ -65,12 +65,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 
 # ── NextAuth ──────────────────────────────────────────────────────────
-NEXTAUTH_SECRET=<random-secret>          # openssl rand -base64 32
-NEXTAUTH_URL=http://localhost:3000
+AUTH_SECRET=<random-secret>          # openssl rand -base64 32
+AUTH_URL=http://localhost:3000
 
 # ── Google Sheets (user sync) ─────────────────────────────────────────
-GOOGLE_SHEETS_SPREADSHEET_ID=<spreadsheet-id>
-GOOGLE_SHEETS_RANGE_GOI_THAU_PHU=GoiThauPhu!A2:Z
+GOOGLE_SHEET_ID=<spreadsheet-id>
+GOOGLE_SERVICE_ACCOUNT_EMAIL=
+GOOGLE_PRIVATE_KEY=
 
 # Place your service account JSON at the project root (git-ignored):
 # service-account.json
