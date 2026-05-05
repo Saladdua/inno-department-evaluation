@@ -45,3 +45,8 @@ service-account.json
 .env.local
 
 .gitnexus
+
+# local-only dev tooling
+CLAUDE.md
+AGENTS.md
+.claude/

@@ -1,36 +1,132 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# INNO Department Evaluation
+
+Internal performance evaluation platform for INNO JSC. Department heads score their peers against a weighted criteria matrix each quarter. Admins manage periods, criteria, and view aggregated results across all departments.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| Auth | NextAuth.js v5 (credentials) |
+| Database | Supabase (PostgreSQL) |
+| User sync | Google Sheets API |
+| UI | React 19, Tailwind CSS v4, Recharts |
+| Validation | Zod, React Hook Form |
+
+## Features
+
+- **Criteria management** — define weighted criteria per quarter; import via CSV
+- **Evaluation matrix** — cross-department scoring with live progress tracking
+- **Results dashboard** — aggregated scores, per-department drill-down
+- **Status view** — completion progress per evaluation period
+- **Role-based access** — `super_admin`, `leadership`, `department`
+- **User sync** — pull staff roster from Google Sheets into Supabase
+
+## Prerequisites
+
+- Node.js 18+
+- A [Supabase](https://supabase.com) project
+- A Google Cloud service account with Sheets API enabled
+- A Google Sheet containing the staff roster
 
 ## Getting Started
 
-First, run the development server:
+### 1. Clone & install
+
+```bash
+git clone https://github.com/Saladdua/inno-department-evaluation.git
+cd inno-department-evaluation
+npm install
+```
+
+### 2. Set up Supabase
+
+Run the schema in **Supabase Dashboard → SQL Editor**:
+
+```bash
+# Apply schema
+supabase-schema.sql
+
+# Seed initial data (optional)
+supabase-seed.sql
+
+# Create superadmin account
+seed-superadmin.sql
+```
+
+### 3. Configure environment variables
+
+Create a `.env.local` file at the project root:
+
+```env
+# ── Supabase ─────────────────────────────────────────────────────────
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+
+# ── NextAuth ──────────────────────────────────────────────────────────
+NEXTAUTH_SECRET=<random-secret>          # openssl rand -base64 32
+NEXTAUTH_URL=http://localhost:3000
+
+# ── Google Sheets (user sync) ─────────────────────────────────────────
+GOOGLE_SHEETS_SPREADSHEET_ID=<spreadsheet-id>
+GOOGLE_SHEETS_RANGE_GOI_THAU_PHU=GoiThauPhu!A2:Z
+
+# Place your service account JSON at the project root (git-ignored):
+# service-account.json
+
+# ── Branding (optional) ───────────────────────────────────────────────
+NEXT_PUBLIC_COMPANY_LOGO_URL=https://your-cdn.com/logo.png
+```
+
+> **Note:** `service-account.json` is git-ignored. Never commit it. Rotate credentials immediately if accidentally exposed.
+
+### 4. Run locally
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# → http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 5. Build for production
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+npm start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deployment
 
-## Learn More
+The easiest path is [Vercel](https://vercel.com) — import the repo, add the environment variables above in the project settings, and deploy.
 
-To learn more about Next.js, take a look at the following resources:
+For self-hosted deployments, set the same env vars on your server and run `npm run build && npm start`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/
+├── app/
+│   ├── api/              REST endpoints (criteria, evaluate, matrix, period, sync…)
+│   ├── dashboard/        Protected pages (criteria, evaluate, matrix, results, status)
+│   └── login/            Authentication UI
+├── auth.ts               NextAuth configuration
+├── middleware.ts          Route protection
+└── lib/
+    ├── auth-helpers.ts    Session / role utilities
+    ├── google-sheets.ts   Sheets API client
+    └── supabase/          SSR + browser Supabase clients
+```
 
-## Deploy on Vercel
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full architecture diagram and execution flow traces.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Role Reference
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Role | Capabilities |
+|---|---|
+| `super_admin` | Full access: periods, criteria, all evaluations, results |
+| `leadership` | View all results and matrix; manage evaluations |
+| `department` | Submit evaluation for assigned department only |
+
+## License
+
+Internal use only — © INNO JSC. Not licensed for redistribution.
