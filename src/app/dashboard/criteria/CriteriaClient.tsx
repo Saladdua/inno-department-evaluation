@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus } from 'lucide-react'
 
 /* ── Types ─────────────────────────────────────────── */
 export interface Period {
@@ -656,20 +657,116 @@ function ImportCsvModal({
   )
 }
 
+/* ── Create Period Modal ───────────────────────────── */
+function CreatePeriodModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void
+  onCreated: (p: Period) => void
+}) {
+  const curYear = new Date().getFullYear()
+  const [form, setForm] = useState({
+    quarter: 1,
+    year: curYear,
+    start_date: '',
+    end_date: '',
+    status: 'draft' as Period['status'],
+  })
+  const [isPending, startTransition] = useTransition()
+  const [err, setErr] = useState('')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.start_date || !form.end_date) { setErr('Vui lòng chọn ngày bắt đầu và kết thúc.'); return }
+    startTransition(async () => {
+      const res = await fetch('/api/period', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error ?? 'Lỗi tạo kỳ.'); return }
+      onCreated(data)
+      onClose()
+    })
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">Tạo kỳ đánh giá mới</span>
+          <button className="modal-close" onClick={onClose}><X size={16} /></button>
+        </div>
+        <form className="modal-form" onSubmit={handleSubmit}>
+          <div className="cp-row">
+            <div className="mf-field" style={{ flex: 1 }}>
+              <label className="mf-label">Quý <span className="mf-required">*</span></label>
+              <select className="mf-input" value={form.quarter}
+                onChange={e => setForm({ ...form, quarter: +e.target.value })}>
+                {[1,2,3,4].map(q => <option key={q} value={q}>Quý {q}</option>)}
+              </select>
+            </div>
+            <div className="mf-field" style={{ flex: 1 }}>
+              <label className="mf-label">Năm <span className="mf-required">*</span></label>
+              <input className="mf-input" type="number" min={2020} max={2099}
+                value={form.year}
+                onChange={e => setForm({ ...form, year: +e.target.value })} />
+            </div>
+          </div>
+          <div className="cp-row">
+            <div className="mf-field" style={{ flex: 1 }}>
+              <label className="mf-label">Bắt đầu <span className="mf-required">*</span></label>
+              <input className="mf-input" type="date" value={form.start_date}
+                onChange={e => setForm({ ...form, start_date: e.target.value })} />
+            </div>
+            <div className="mf-field" style={{ flex: 1 }}>
+              <label className="mf-label">Kết thúc <span className="mf-required">*</span></label>
+              <input className="mf-input" type="date" value={form.end_date}
+                onChange={e => setForm({ ...form, end_date: e.target.value })} />
+            </div>
+          </div>
+          <div className="mf-field">
+            <label className="mf-label">Tình trạng ban đầu</label>
+            <select className="mf-input" value={form.status}
+              onChange={e => setForm({ ...form, status: e.target.value as Period['status'] })}>
+              <option value="draft">Chưa bắt đầu (Draft)</option>
+              <option value="open">Đang diễn ra (Open)</option>
+            </select>
+          </div>
+          {err && <p className="mf-error">{err}</p>}
+          <div className="mf-actions">
+            <button type="button" className="mf-btn mf-btn--cancel" onClick={onClose}>Huỷ</button>
+            <button type="submit" className="mf-btn mf-btn--save" disabled={isPending}>
+              {isPending ? 'Đang tạo…' : 'Tạo kỳ'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 /* ── Main export ───────────────────────────────────── */
 export default function CriteriaClient({
+  periods: initialPeriods,
   initialPeriod,
   initialCriteria,
   role,
 }: {
+  periods: Period[]
   initialPeriod: Period | null
   initialCriteria: Criterion[]
   role: Role
 }) {
+  const router = useRouter()
+  const [periods, setPeriods] = useState<Period[]>(initialPeriods)
   const [period, setPeriod] = useState<Period | null>(initialPeriod)
   const [criteria, setCriteria] = useState<Criterion[]>(initialCriteria)
   const [showAdd, setShowAdd] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showCreatePeriod, setShowCreatePeriod] = useState(false)
 
   const canEdit = role === 'super_admin' || role === 'leadership'
 
@@ -694,8 +791,38 @@ export default function CriteriaClient({
     if (res.ok) setCriteria(prev => prev.map(c => c.id === id ? { ...c, ...fields, weight: data.weight } : c))
   }
 
+  function handlePeriodChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    router.push(`/dashboard/criteria?periodId=${e.target.value}`)
+  }
+
+  function handlePeriodCreated(p: Period) {
+    setPeriods(prev => [p, ...prev])
+    router.push(`/dashboard/criteria?periodId=${p.id}`)
+  }
+
   return (
     <div className="criteria-root">
+      {/* Period selector row */}
+      <div className="cp-header-row">
+        <div className="cp-selector-wrap">
+          <select className="cp-period-select" value={period?.id ?? ''} onChange={handlePeriodChange}>
+            {periods.map(p => (
+              <option key={p.id} value={p.id}>
+                Quý {p.quarter} · {p.year}
+                {p.status === 'closed' ? ' (Đã kết thúc)' : p.status === 'open' ? ' (Đang diễn ra)' : ' (Chưa bắt đầu)'}
+              </option>
+            ))}
+            {periods.length === 0 && <option value="">— Chưa có kỳ nào —</option>}
+          </select>
+          <ChevronDown size={13} className="cp-chevron" />
+        </div>
+        {canEdit && (
+          <button className="cp-new-btn" onClick={() => setShowCreatePeriod(true)}>
+            <CalendarPlus size={13} /> Tạo kỳ mới
+          </button>
+        )}
+      </div>
+
       <PeriodBanner period={period} canEdit={canEdit} onSave={handlePeriodSave} />
 
       {period && (
@@ -728,6 +855,13 @@ export default function CriteriaClient({
           quarter={period.quarter}
           onClose={() => setShowImport(false)}
           onImported={imported => setCriteria(prev => [...prev, ...imported])}
+        />
+      )}
+
+      {showCreatePeriod && (
+        <CreatePeriodModal
+          onClose={() => setShowCreatePeriod(false)}
+          onCreated={handlePeriodCreated}
         />
       )}
 
@@ -788,6 +922,7 @@ export default function CriteriaClient({
         }
         .bf-input:focus { border-color: rgba(179,0,0,0.5); }
         .bf-select { cursor: pointer; }
+        .bf-select option { background: #1a1a1a; color: #fff; }
         .banner-actions { display: flex; gap: 8px; flex-shrink: 0; align-items: flex-start; padding-top: 2px; }
         .bact-btn {
           display: inline-flex; align-items: center; gap: 5px;
@@ -977,6 +1112,7 @@ export default function CriteriaClient({
           transition: border-color 0.15s;
         }
         .mf-input:focus { border-color: rgba(179,0,0,0.5); }
+        .mf-input option { background: #1a1a1a; color: #fff; }
         .mf-error { font-size: 12px; color: #ff6666; font-style: italic; }
         .mf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
         .mf-btn {
@@ -1056,6 +1192,48 @@ export default function CriteriaClient({
         }
         .ct-type-select option { background: #1a1a1a; }
 
+        /* ── Period selector row ── */
+        .cp-header-row {
+          display: flex; align-items: center; gap: 10px;
+          margin-bottom: 16px;
+        }
+        .cp-selector-wrap {
+          position: relative; display: inline-flex; align-items: center;
+        }
+        .cp-period-select {
+          appearance: none;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px;
+          padding: 7px 32px 7px 12px;
+          font-size: 13px;
+          color: rgba(255,255,255,0.8);
+          font-family: var(--font-sans), sans-serif;
+          cursor: pointer;
+          outline: none;
+          transition: border-color 0.15s, background 0.15s;
+          min-width: 220px;
+        }
+        .cp-period-select:focus { border-color: rgba(179,0,0,0.4); }
+        .cp-period-select option { background: #1a1a1a; }
+        .cp-chevron {
+          position: absolute; right: 10px;
+          pointer-events: none; color: rgba(255,255,255,0.3);
+        }
+        .cp-new-btn {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 7px 14px; border-radius: 8px;
+          background: rgba(179,0,0,0.1); border: 1px solid rgba(179,0,0,0.25);
+          color: rgba(255,100,100,0.85); font-size: 12px; cursor: pointer;
+          font-family: var(--font-sans), sans-serif;
+          transition: background 0.15s, transform 0.15s;
+          white-space: nowrap;
+        }
+        .cp-new-btn:hover { background: rgba(179,0,0,0.18); transform: translateY(-1px); }
+
+        /* ── Create period form row ── */
+        .cp-row { display: flex; gap: 12px; }
+
         /* ── Root ── */
         .criteria-root { font-family: var(--font-sans), sans-serif; }
 
@@ -1105,6 +1283,10 @@ export default function CriteriaClient({
         [data-theme="light"] .ct-type-badge--manual { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .ct-type-select { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.7); }
         [data-theme="light"] .ct-type-select option { background: #fff; }
+        [data-theme="light"] .cp-period-select { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.75); }
+        [data-theme="light"] .cp-period-select option { background: #fff; }
+        [data-theme="light"] .cp-chevron { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .cp-new-btn { background: rgba(179,0,0,0.07); border-color: rgba(179,0,0,0.2); color: rgba(160,0,0,0.85); }
       `}</style>
     </div>
   )

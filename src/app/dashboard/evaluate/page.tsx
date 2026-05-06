@@ -10,6 +10,8 @@ export default async function EvaluatePage() {
 
   const role = session.user.role as 'super_admin' | 'leadership' | 'department'
   const myDeptId = session.user.departmentId ?? null
+  const isLeader = role === 'leadership'
+  const leaderId = session.user.id
 
   const supabase = createServiceClient()
 
@@ -29,7 +31,7 @@ export default async function EvaluatePage() {
     )
   }
 
-  const [criteriaResult, deptsResult, matrixResult, evalsResult] = await Promise.all([
+  const [criteriaResult, deptsResult] = await Promise.all([
     supabase
       .from('criteria')
       .select('id, code, name, weight, input_type, display_order')
@@ -40,35 +42,55 @@ export default async function EvaluatePage() {
       .from('departments')
       .select('id, name, code')
       .order('name'),
-
-    (role === 'department' && myDeptId
-      ? supabase
-          .from('evaluation_matrix')
-          .select('evaluator_id, target_id')
-          .eq('period_id', period.id)
-          .eq('evaluator_id', myDeptId)
-      : supabase
-          .from('evaluation_matrix')
-          .select('evaluator_id, target_id')
-          .eq('period_id', period.id)
-    ),
-
-    (role === 'department' && myDeptId
-      ? supabase
-          .from('evaluations')
-          .select('id, evaluator_id, target_id, status, total_score')
-          .eq('period_id', period.id)
-          .eq('evaluator_id', myDeptId)
-      : supabase
-          .from('evaluations')
-          .select('id, evaluator_id, target_id, status, total_score')
-          .eq('period_id', period.id)
-    ),
   ])
 
-  const evaluations = evalsResult.data ?? []
-  const evalIds = evaluations.map(e => e.id)
+  const depts = (deptsResult.data ?? []) as Department[]
 
+  // Matrix: leaders evaluate all departments as themselves
+  let matrix: MatrixEntry[] = []
+  if (isLeader) {
+    matrix = depts.map(d => ({ evaluator_id: leaderId, target_id: d.id }))
+  } else if (role === 'department' && myDeptId) {
+    const { data } = await supabase
+      .from('evaluation_matrix')
+      .select('evaluator_id, target_id')
+      .eq('period_id', period.id)
+      .eq('evaluator_id', myDeptId)
+    matrix = (data ?? []) as MatrixEntry[]
+  } else {
+    // super_admin: all matrix entries
+    const { data } = await supabase
+      .from('evaluation_matrix')
+      .select('evaluator_id, target_id')
+      .eq('period_id', period.id)
+    matrix = (data ?? []) as MatrixEntry[]
+  }
+
+  // Evaluations: leaders fetch by their user ID
+  let evaluations: EvaluationRow[] = []
+  if (isLeader) {
+    const { data } = await supabase
+      .from('evaluations')
+      .select('id, evaluator_id, target_id, status, total_score')
+      .eq('period_id', period.id)
+      .eq('evaluator_id', leaderId)
+    evaluations = (data ?? []) as EvaluationRow[]
+  } else if (role === 'department' && myDeptId) {
+    const { data } = await supabase
+      .from('evaluations')
+      .select('id, evaluator_id, target_id, status, total_score')
+      .eq('period_id', period.id)
+      .eq('evaluator_id', myDeptId)
+    evaluations = (data ?? []) as EvaluationRow[]
+  } else {
+    const { data } = await supabase
+      .from('evaluations')
+      .select('id, evaluator_id, target_id, status, total_score')
+      .eq('period_id', period.id)
+    evaluations = (data ?? []) as EvaluationRow[]
+  }
+
+  const evalIds = evaluations.map(e => e.id)
   let scores: ScoreRow[] = []
   if (evalIds.length > 0) {
     const { data } = await supabase
@@ -83,12 +105,13 @@ export default async function EvaluatePage() {
       periodId={period.id}
       periodLabel={`Quý ${period.quarter} · ${period.year}`}
       criteria={(criteriaResult.data ?? []) as Criterion[]}
-      depts={(deptsResult.data ?? []) as Department[]}
-      matrix={(matrixResult.data ?? []) as MatrixEntry[]}
-      initialEvaluations={evaluations as EvaluationRow[]}
+      depts={depts}
+      matrix={matrix}
+      initialEvaluations={evaluations}
       initialScores={scores}
       role={role}
       myDeptId={myDeptId}
+      isLeader={isLeader}
     />
   )
 }

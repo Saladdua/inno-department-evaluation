@@ -4,7 +4,12 @@ import { createServiceClient } from '@/lib/supabase/server'
 import StatusClient from './StatusClient'
 import type { DeptStat, OverallStats } from './StatusClient'
 
-export default async function StatusPage() {
+export default async function StatusPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ periodId?: string }>
+}) {
+  const { periodId } = await searchParams
   const session = await auth()
   if (!session) redirect('/login')
 
@@ -14,13 +19,17 @@ export default async function StatusPage() {
 
   const supabase = createServiceClient()
 
-  const { data: period } = await supabase
+  const { data: periodsData } = await supabase
     .from('evaluation_periods')
-    .select('id, quarter, year, status')
+    .select('id, quarter, year, status, end_date')
     .order('year', { ascending: false })
     .order('quarter', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+
+  const periods = periodsData ?? []
+
+  const period = periodId
+    ? (periods.find(p => p.id === periodId) ?? periods[0])
+    : periods[0]
 
   if (!period) {
     return (
@@ -30,25 +39,26 @@ export default async function StatusPage() {
     )
   }
 
-  const [deptsResult, matrixResult, evalsResult] = await Promise.all([
+  const [deptsResult, matrixResult, evalsResult, leaderCountResult] = await Promise.all([
     supabase.from('departments').select('id, name, code').order('name'),
     supabase.from('evaluation_matrix').select('evaluator_id, target_id').eq('period_id', period.id),
     supabase.from('evaluations').select('evaluator_id, target_id, status').eq('period_id', period.id),
+    supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'leadership'),
   ])
+  const leaderCount = leaderCountResult.count ?? 0
 
   const depts   = deptsResult.data ?? []
   const matrix  = matrixResult.data ?? []
   const evals   = evalsResult.data ?? []
 
-  // ── Overall stats ──────────────────────────────────────────
-  const totalTasks      = matrix.length
+  const leaderTasks     = leaderCount * depts.length
+  const totalTasks      = matrix.length + leaderTasks
   const submittedCount  = evals.filter(e => e.status === 'submitted').length
   const draftCount      = evals.filter(e => e.status === 'draft').length
-  const notStartedCount = totalTasks - submittedCount - draftCount
+  const notStartedCount = Math.max(0, totalTasks - submittedCount - draftCount)
 
   const overall: OverallStats = { totalTasks, submittedCount, draftCount, notStartedCount }
 
-  // ── Per-dept stats ─────────────────────────────────────────
   const stats: DeptStat[] = depts.map(dept => {
     const outgoing = matrix.filter(m => m.evaluator_id === dept.id)
     const dueCount  = outgoing.length
@@ -56,31 +66,22 @@ export default async function StatusPage() {
     const doneCount  = [...evalMap.values()].filter(s => s === 'submitted').length
     const draftCnt   = [...evalMap.values()].filter(s => s === 'draft').length
 
-    // Targets not yet evaluated (no evaluation row at all)
     const pendingTargetCodes = outgoing
       .filter(m => !evalMap.has(m.target_id))
       .map(m => depts.find(d => d.id === m.target_id)?.code ?? depts.find(d => d.id === m.target_id)?.name ?? m.target_id)
       .sort()
 
-    // Incoming: how many evaluators have submitted an evaluation targeting this dept
-    const incomingTotal = matrix.filter(m => m.target_id === dept.id).length
+    const incomingTotal = matrix.filter(m => m.target_id === dept.id).length + leaderCount
     const incomingDone  = evals.filter(e => e.target_id === dept.id && e.status === 'submitted').length
 
     return {
-      id: dept.id,
-      name: dept.name,
-      code: dept.code,
-      dueCount,
-      doneCount,
-      draftCount: draftCnt,
-      pendingTargetCodes,
-      incomingDone,
-      incomingTotal,
+      id: dept.id, name: dept.name, code: dept.code,
+      dueCount, doneCount, draftCount: draftCnt,
+      pendingTargetCodes, incomingDone, incomingTotal,
       isMyDept: dept.id === myDeptId,
     }
   })
 
-  // Sort: not_started → in_progress → done, then alphabetically
   const statusOrder = (s: DeptStat) => {
     if (s.dueCount === 0) return 3
     if (s.doneCount === s.dueCount) return 2
@@ -93,6 +94,9 @@ export default async function StatusPage() {
     <StatusClient
       periodLabel={`Quý ${period.quarter} · ${period.year}`}
       periodStatus={period.status}
+      endDate={period.end_date}
+      activePeriodId={period.id}
+      periods={periods.map(p => ({ id: p.id, quarter: p.quarter, year: p.year, status: p.status }))}
       stats={stats}
       overall={overall}
       canManageAll={canManageAll}

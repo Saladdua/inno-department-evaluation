@@ -66,6 +66,16 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient()
 
+  // Block writes on closed periods
+  const { data: periodCheck } = await supabase
+    .from('evaluation_periods')
+    .select('status')
+    .eq('id', period_id)
+    .maybeSingle()
+  if (periodCheck?.status === 'closed') {
+    return NextResponse.json({ error: 'Kỳ đánh giá đã tổng kết, không thể chỉnh sửa.' }, { status: 403 })
+  }
+
   // Guard: dept users cannot overwrite a submitted evaluation
   if (!canManageAll) {
     const { data: existing } = await supabase

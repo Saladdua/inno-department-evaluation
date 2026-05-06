@@ -2,8 +2,20 @@ import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/auth-helpers'
 import { createServiceClient } from '@/lib/supabase/server'
 
-export async function GET() {
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
   const supabase = createServiceClient()
+
+  if (searchParams.get('all') === 'true') {
+    const { data, error } = await supabase
+      .from('evaluation_periods')
+      .select('*')
+      .order('year', { ascending: false })
+      .order('quarter', { ascending: false })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(data ?? [])
+  }
+
   const { data, error } = await supabase
     .from('evaluation_periods')
     .select('*')

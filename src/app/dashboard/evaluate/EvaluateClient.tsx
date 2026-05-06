@@ -55,6 +55,7 @@ interface Props {
   initialScores: ScoreRow[]
   role: Role
   myDeptId: string | null
+  isLeader?: boolean
 }
 
 function getDeptName(depts: Department[], id: string) {
@@ -76,6 +77,7 @@ export default function EvaluateClient({
   initialScores,
   role,
   myDeptId,
+  isLeader = false,
 }: Props) {
   const canManageAll = role === 'super_admin' || role === 'leadership'
 
@@ -262,7 +264,14 @@ export default function EvaluateClient({
       <div className="ev-left">
         <div className="ev-period">{periodLabel}</div>
 
-        {canManageAll && evaluatorIds.length > 0 && (
+        {isLeader && (
+          <div className="ev-field">
+            <span className="ev-field-label">Đánh giá với tư cách</span>
+            <span className="ev-leader-badge">Ban lãnh đạo</span>
+          </div>
+        )}
+
+        {canManageAll && !isLeader && evaluatorIds.length > 0 && (
           <div className="ev-field">
             <span className="ev-field-label">Phòng ban đánh giá</span>
             <select
@@ -345,7 +354,9 @@ export default function EvaluateClient({
             {/* Form header */}
             <div className="ev-form-header">
               <div className="ev-form-route">
-                <span className="ev-from">{getDeptLabel(depts, selectedEvaluatorId)}</span>
+                <span className="ev-from">
+                  {isLeader ? 'BLĐ' : getDeptLabel(depts, selectedEvaluatorId)}
+                </span>
                 <span className="ev-arrow">→</span>
                 <span className="ev-to">{getDeptName(depts, selectedTargetId)}</span>
               </div>
@@ -520,6 +531,13 @@ export default function EvaluateClient({
         }
         .ev-select:focus { border-color: rgba(179,0,0,0.5); }
         .ev-select option { background: #1a1a1a; color: #fff; }
+
+        .ev-leader-badge {
+          display: inline-flex; align-items: center;
+          padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+          background: rgba(251,191,36,0.1); color: #fbbf24;
+          border: 1px solid rgba(251,191,36,0.2); letter-spacing: 0.04em;
+        }
 
         .ev-divider { height: 1px; background: rgba(255,255,255,0.05); margin: 0 12px; flex-shrink: 0; }
 
