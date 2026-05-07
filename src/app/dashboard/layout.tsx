@@ -19,6 +19,7 @@ import {
   Moon,
 } from 'lucide-react'
 import { useTheme } from '@/components/providers'
+import NotificationBell from '@/components/NotificationBell'
 
 const NAV = [
   { href: '/dashboard/criteria', label: 'Tiêu chí và hệ số',  icon: SlidersHorizontal, roles: ['super_admin','leadership','department'] },
@@ -29,7 +30,7 @@ const NAV = [
   { href: '/dashboard/results/detail', label: 'Kết quả chi tiết', icon: FileBarChart,   roles: ['super_admin','leadership'] },
   { href: '/dashboard/departments',      label: 'Phòng ban',          icon: Building2,      roles: ['super_admin', 'leadership'] },
   { href: '/dashboard/users',            label: 'Tài khoản',          icon: Users,          roles: ['super_admin', 'leadership'] },
-  { href: '/dashboard/data-processing', label: 'Xử lí Dữ liệu',     icon: DatabaseZap,    roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/data-processing', label: 'Xử lí Dữ liệu',     icon: DatabaseZap,    roles: ['super_admin'] },
 ] as const
 
 type Role = 'super_admin' | 'leadership' | 'department'
@@ -147,6 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="period-dot" />
               <span>Quý 2 · 2025</span>
             </div>
+            <NotificationBell deptId={session?.user?.departmentId ?? null} />
             <button
               className="theme-toggle"
               onClick={toggle}

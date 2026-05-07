@@ -7,12 +7,13 @@ export interface Department {
   id: string
   name: string
   code: string | null
+  display_order: number
 }
 
 export interface MatrixEntry {
   evaluator_id: string
   target_id: string
-  selected_by: string | null  // user id who created this pairing
+  selected_by: string | null
 }
 
 type Role = 'super_admin' | 'leadership' | 'department'
@@ -45,6 +46,12 @@ export default function MatrixClient({
   const canManageAll = role === 'super_admin' || role === 'leadership'
   const depts = initialDepts
 
+  // Index map: deptId → position in ordered array
+  const deptIndex = useMemo(
+    () => new Map(depts.map((d, i) => [d.id, i])),
+    [depts]
+  )
+
   const entrySet = useMemo(
     () => new Set(entries.map(e => `${e.evaluator_id}:${e.target_id}`)),
     [entries]
@@ -54,39 +61,34 @@ export default function MatrixClient({
     return entrySet.has(`${evaluatorId}:${targetId}`)
   }
 
-  // A pair is "owned" by the current user if either direction was selected_by them
-  function isOwnedByMe(aId: string, bId: string): boolean {
-    return entries.some(
-      e => e.selected_by === myUserId &&
-        ((e.evaluator_id === aId && e.target_id === bId) ||
-         (e.evaluator_id === bId && e.target_id === aId))
-    )
+  // Upper triangle: row (evaluator) index must be strictly less than col (target) index
+  function isUpperTriangle(rowId: string, colId: string): boolean {
+    const ri = deptIndex.get(rowId) ?? -1
+    const ci = deptIndex.get(colId) ?? -1
+    return ri < ci
   }
 
-  function canInteractCell(evaluatorId: string, targetId: string): boolean {
-    if (!periodId || evaluatorId === targetId) return false
+  function canInteractCell(rowId: string, colId: string): boolean {
+    if (!periodId) return false
+    if (rowId === colId) return false
+    if (!isUpperTriangle(rowId, colId)) return false
     if (canManageAll) return true
-    // Department role: only interact with their own row, and only pairs they can own
-    return role === 'department' && myDeptId === evaluatorId
+    return role === 'department' && myDeptId === rowId
   }
 
-  function toggle(deptAId: string, deptBId: string) {
+  function toggle(evaluatorId: string, targetId: string) {
     if (!periodId) return
-    // Consider the pair already active if either direction exists
-    const active = hasEntry(deptAId, deptBId) || hasEntry(deptBId, deptAId)
+    const active = hasEntry(evaluatorId, targetId)
     const action = active ? 'remove' : 'add'
 
-    // Optimistic update
     if (action === 'add') {
       setEntries(prev => [
         ...prev,
-        { evaluator_id: deptAId, target_id: deptBId, selected_by: myUserId },
-        { evaluator_id: deptBId, target_id: deptAId, selected_by: myUserId },
+        { evaluator_id: evaluatorId, target_id: targetId, selected_by: myUserId },
       ])
     } else {
-      setEntries(prev => prev.filter(e =>
-        !(e.evaluator_id === deptAId && e.target_id === deptBId) &&
-        !(e.evaluator_id === deptBId && e.target_id === deptAId)
+      setEntries(prev => prev.filter(
+        e => !(e.evaluator_id === evaluatorId && e.target_id === targetId)
       ))
     }
 
@@ -94,7 +96,7 @@ export default function MatrixClient({
       const res = await fetch('/api/matrix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period_id: periodId, dept_a_id: deptAId, dept_b_id: deptBId, action }),
+        body: JSON.stringify({ period_id: periodId, evaluator_id: evaluatorId, target_id: targetId, action }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -111,35 +113,34 @@ export default function MatrixClient({
       await fetch('/api/matrix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period_id: periodId, dept_a_id: '', dept_b_id: '', action: 'clear' }),
+        body: JSON.stringify({ period_id: periodId, action: 'clear' }),
       })
     })
   }
 
+  // Count how many depts each evaluator is evaluating
   const evaluatingCount = useMemo(() => {
     const map: Record<string, number> = {}
     depts.forEach(d => { map[d.id] = 0 })
-    entries.forEach(e => {
-      if (e.evaluator_id !== e.target_id) map[e.evaluator_id] = (map[e.evaluator_id] ?? 0) + 1
-    })
+    entries.forEach(e => { map[e.evaluator_id] = (map[e.evaluator_id] ?? 0) + 1 })
     return map
   }, [entries, depts])
 
-  const totalLinks = useMemo(() => {
-    const pairs = new Set<string>()
-    entries.forEach(e => pairs.add([e.evaluator_id, e.target_id].sort().join(':')))
-    return pairs.size
-  }, [entries])
+  const totalLinks = useMemo(() => entries.length, [entries])
 
-  // Dept role summary
-  const mySelections = useMemo(
-    () => entries.filter(e => e.evaluator_id === myDeptId && e.selected_by === myUserId),
-    [entries, myDeptId, myUserId]
+  // My row: depts I'm evaluating (I'm evaluator)
+  const myEvaluating = useMemo(
+    () => entries.filter(e => e.evaluator_id === myDeptId),
+    [entries, myDeptId]
   )
-  const reciprocalDuties = useMemo(
-    () => entries.filter(e => e.evaluator_id === myDeptId && e.selected_by !== myUserId),
-    [entries, myDeptId, myUserId]
+  // My col: depts that chose me (I'm target)
+  const chosenByOthers = useMemo(
+    () => entries.filter(e => e.target_id === myDeptId),
+    [entries, myDeptId]
   )
+
+  const myRowIndex = myDeptId ? (deptIndex.get(myDeptId) ?? -1) : -1
+  const isLastDept = myRowIndex === depts.length - 1
 
   if (!periodId) {
     return (
@@ -157,7 +158,7 @@ export default function MatrixClient({
       <div className="mx-header">
         <div className="mx-header-left">
           <span className="mx-period">{periodLabel}</span>
-          <span className="mx-stat">{totalLinks} cặp đánh giá</span>
+          <span className="mx-stat">{totalLinks} lượt chọn</span>
         </div>
         {canManageAll && (
           <div className="mx-header-right">
@@ -180,13 +181,15 @@ export default function MatrixClient({
       {role === 'department' && myDeptId && (
         <div className="mx-hint">
           <span className="mx-hint-dept">{depts.find(d => d.id === myDeptId) ? deptLabel(depts.find(d => d.id === myDeptId)!) : ''}</span>
-          <span className="mx-hint-text">
-            {' '}— tick chọn các phòng ban mà bạn muốn đánh giá. Hệ thống sẽ tự động thêm chiều ngược lại.
-          </span>
+          {isLastDept ? (
+            <span className="mx-hint-text"> — phòng ban của bạn không thể chọn đánh giá. Bạn sẽ được các phòng ban khác chọn.</span>
+          ) : (
+            <span className="mx-hint-text"> — tick chọn các phòng ban phía dưới bạn trong ma trận để đánh giá.</span>
+          )}
         </div>
       )}
 
-      {/* ── Body: matrix left, panel right ── */}
+      {/* ── Body ── */}
       <div className={`mx-body${(canManageAll || (role === 'department' && !!myDeptId)) ? ' mx-body--split' : ''}`}>
 
         {/* Matrix grid */}
@@ -206,7 +209,7 @@ export default function MatrixClient({
               </tr>
             </thead>
             <tbody>
-              {depts.map(row => {
+              {depts.map((row, ri) => {
                 const isMyRow = row.id === myDeptId
                 return (
                   <tr key={row.id} className={`mx-row ${isMyRow ? 'mx-row--mine' : ''}`}>
@@ -215,13 +218,17 @@ export default function MatrixClient({
                         {deptLabel(row)}
                       </span>
                     </td>
-                    {depts.map(col => {
-                      const isDiag = row.id === col.id
+                    {depts.map((col, ci) => {
+                      const isDiag = ri === ci
+                      const isLower = ci < ri
                       const checked = hasEntry(row.id, col.id)
                       const interactive = canInteractCell(row.id, col.id)
 
                       if (isDiag) {
                         return <td key={col.id} className="mx-cell mx-cell--diag" />
+                      }
+                      if (isLower) {
+                        return <td key={col.id} className="mx-cell mx-cell--blocked" />
                       }
 
                       return (
@@ -232,8 +239,8 @@ export default function MatrixClient({
                           title={
                             interactive
                               ? checked
-                                ? `Bỏ chọn: ${deptLabel(row)} ↔ ${deptLabel(col)}`
-                                : `Chọn: ${deptLabel(row)} ↔ ${deptLabel(col)}`
+                                ? `Bỏ chọn: ${deptLabel(row)} → ${deptLabel(col)}`
+                                : `Chọn: ${deptLabel(row)} → ${deptLabel(col)}`
                               : undefined
                           }
                         >
@@ -257,7 +264,7 @@ export default function MatrixClient({
         {canManageAll && (
           <div className="mx-chart-panel">
             <div className="mx-chart-header">
-              <span className="mx-chart-title">Số phòng đánh giá</span>
+              <span className="mx-chart-title">Số phòng đang đánh giá</span>
               <span className="mx-chart-sub">Tối đa {depts.length - 1}</span>
             </div>
             <div className="mx-chart-content">
@@ -290,28 +297,30 @@ export default function MatrixClient({
         {/* ── Summary panel (department) ── */}
         {role === 'department' && myDeptId && (
           <div className="mx-summary-panel">
-            <div className="mx-summary-section">
-              <span className="mx-summary-title">Bạn đã chọn đánh giá ({mySelections.length})</span>
-              <div className="mx-tag-list">
-                {mySelections.length === 0 ? (
-                  <span className="mx-tag-empty">Chưa chọn phòng ban nào</span>
-                ) : mySelections.map(e => {
-                  const d = depts.find(d => d.id === e.target_id)
-                  return d ? <span key={e.target_id} className="mx-tag mx-tag--active">{deptLabel(d)}</span> : null
-                })}
-              </div>
-            </div>
-            {reciprocalDuties.length > 0 && (
+            {!isLastDept && (
               <div className="mx-summary-section">
-                <span className="mx-summary-title">Bắt buộc đánh giá ({reciprocalDuties.length})</span>
+                <span className="mx-summary-title">Bạn đang đánh giá ({myEvaluating.length})</span>
                 <div className="mx-tag-list">
-                  {reciprocalDuties.map(e => {
+                  {myEvaluating.length === 0 ? (
+                    <span className="mx-tag-empty">Chưa chọn phòng ban nào</span>
+                  ) : myEvaluating.map(e => {
                     const d = depts.find(d => d.id === e.target_id)
-                    return d ? <span key={e.target_id} className="mx-tag mx-tag--required">{deptLabel(d)}</span> : null
+                    return d ? <span key={e.target_id} className="mx-tag mx-tag--active">{deptLabel(d)}</span> : null
                   })}
                 </div>
               </div>
             )}
+            <div className="mx-summary-section">
+              <span className="mx-summary-title">Phòng ban chọn bạn ({chosenByOthers.length})</span>
+              <div className="mx-tag-list">
+                {chosenByOthers.length === 0 ? (
+                  <span className="mx-tag-empty">Chưa có phòng ban nào chọn</span>
+                ) : chosenByOthers.map(e => {
+                  const d = depts.find(d => d.id === e.evaluator_id)
+                  return d ? <span key={e.evaluator_id} className="mx-tag mx-tag--required">{deptLabel(d)}</span> : null
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -364,10 +373,8 @@ export default function MatrixClient({
         /* Grid */
         .mx-grid-wrap {
           flex: 0 0 auto;
-          overflow-x: auto;
-          overflow-y: visible;
-          border-radius: 12px;
-          border: 1px solid rgba(255,255,255,0.06);
+          overflow-x: auto; overflow-y: visible;
+          border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);
           background: rgba(255,255,255,0.015);
           box-shadow: 0 4px 24px rgba(0,0,0,0.3);
           scrollbar-width: thin; scrollbar-color: rgba(179,0,0,0.2) transparent;
@@ -416,6 +423,16 @@ export default function MatrixClient({
         .mx-cell { width: 44px; height: 38px; text-align: center; vertical-align: middle; padding: 0; position: relative; transition: background 0.1s; }
         .mx-cell--diag { background: rgba(255,255,255,0.03); }
         .mx-cell--diag::after { content: ''; position: absolute; inset: 6px; border-radius: 4px; background: rgba(255,255,255,0.04); }
+        .mx-cell--blocked {
+          background: repeating-linear-gradient(
+            -45deg,
+            rgba(255,255,255,0.015) 0px,
+            rgba(255,255,255,0.015) 2px,
+            transparent 2px,
+            transparent 8px
+          );
+          cursor: not-allowed;
+        }
         .mx-cell--interactive { cursor: pointer; }
         .mx-cell--interactive:hover { background: rgba(179,0,0,0.06); }
         .mx-cell--on { background: rgba(179,0,0,0.08); }
@@ -431,80 +448,30 @@ export default function MatrixClient({
 
         /* Chart panel */
         .mx-chart-panel {
-          flex: 1;
-          background: rgba(255,255,255,0.02);
-          border: 1px solid rgba(255,255,255,0.05);
-          border-radius: 12px;
-          padding: 20px 24px;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          animation: mxFadeUp 0.45s 0.12s both;
-          min-width: 0;
+          flex: 1; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+          border-radius: 12px; padding: 20px 24px;
+          display: flex; flex-direction: column; gap: 16px;
+          animation: mxFadeUp 0.45s 0.12s both; min-width: 0;
         }
         .mx-chart-header { display: flex; align-items: baseline; justify-content: space-between; }
-        .mx-chart-title {
-          font-size: 12px; font-weight: 700; letter-spacing: 0.09em;
-          text-transform: uppercase; color: rgba(255,255,255,0.4); font-family: monospace;
-        }
+        .mx-chart-title { font-size: 12px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: rgba(255,255,255,0.4); font-family: monospace; }
         .mx-chart-sub { font-size: 11px; color: rgba(179,0,0,0.7); font-family: monospace; font-weight: 600; }
-        .mx-chart-content {
-          flex: 1; display: flex; gap: 12px; min-height: 0;
-        }
-        .mx-chart-y-labels {
-          display: flex; flex-direction: column;
-          justify-content: space-between;
-          padding-bottom: 28px; padding-top: 24px;
-          flex-shrink: 0;
-        }
-        .mx-chart-y-val {
-          font-size: 11px; color: rgba(255,255,255,0.2);
-          font-family: monospace; text-align: right; line-height: 1;
-        }
-        .mx-chart-bars-wrap {
-          flex: 1; display: flex; align-items: stretch; gap: 10px; min-width: 0;
-        }
-        .mx-bar-col {
-          flex: 1; display: flex; flex-direction: column;
-          align-items: center; gap: 6px; min-width: 0;
-        }
-        .mx-bar-num {
-          font-size: 12px; font-weight: 700;
-          color: rgba(255,255,255,0.6); height: 20px; line-height: 20px;
-          font-family: monospace;
-        }
-        .mx-bar-track {
-          flex: 1; width: 100%;
-          background: rgba(255,255,255,0.05);
-          border-radius: 6px;
-          display: flex; flex-direction: column;
-          overflow: hidden; min-height: 0;
-        }
-        .mx-bar-fill {
-          background: linear-gradient(to top, #B30000, rgba(220,50,50,0.6));
-          border-radius: 4px 4px 0 0;
-          box-shadow: 0 -4px 14px rgba(179,0,0,0.3);
-        }
-        .mx-bar-lbl {
-          font-size: 11px; font-weight: 600;
-          color: rgba(255,255,255,0.35); text-align: center;
-          letter-spacing: 0.04em; overflow: hidden;
-          text-overflow: ellipsis; white-space: nowrap;
-          max-width: 100%; font-family: monospace;
-        }
+        .mx-chart-content { flex: 1; display: flex; gap: 12px; min-height: 0; }
+        .mx-chart-y-labels { display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 28px; padding-top: 24px; flex-shrink: 0; }
+        .mx-chart-y-val { font-size: 11px; color: rgba(255,255,255,0.2); font-family: monospace; text-align: right; line-height: 1; }
+        .mx-chart-bars-wrap { flex: 1; display: flex; align-items: stretch; gap: 10px; min-width: 0; }
+        .mx-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+        .mx-bar-num { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.6); height: 20px; line-height: 20px; font-family: monospace; }
+        .mx-bar-track { flex: 1; width: 100%; background: rgba(255,255,255,0.05); border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+        .mx-bar-fill { background: linear-gradient(to top, #B30000, rgba(220,50,50,0.6)); border-radius: 4px 4px 0 0; box-shadow: 0 -4px 14px rgba(179,0,0,0.3); }
+        .mx-bar-lbl { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.35); text-align: center; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-family: monospace; }
 
         /* Summary panel */
         .mx-summary-panel {
-          flex: 1;
-          background: rgba(255,255,255,0.02);
-          border: 1px solid rgba(255,255,255,0.05);
-          border-radius: 12px;
-          padding: 20px 24px;
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-          animation: mxFadeUp 0.45s 0.12s both;
-          min-width: 0;
+          flex: 1; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+          border-radius: 12px; padding: 20px 24px;
+          display: flex; flex-direction: column; gap: 20px;
+          animation: mxFadeUp 0.45s 0.12s both; min-width: 0;
         }
         .mx-summary-section { display: flex; flex-direction: column; gap: 10px; }
         .mx-summary-title { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.35); font-family: monospace; }
@@ -514,7 +481,7 @@ export default function MatrixClient({
         .mx-tag--active { background: rgba(179,0,0,0.12); color: rgba(255,120,120,0.9); border: 1px solid rgba(179,0,0,0.25); }
         .mx-tag--required { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.1); }
 
-        /* ── Light mode ───────────────────────────────── */
+        /* ── Light mode ── */
         [data-theme="light"] .mx-period { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mx-btn--ghost { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .mx-hint { color: rgba(0,0,0,0.4); background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); }
@@ -529,21 +496,25 @@ export default function MatrixClient({
         [data-theme="light"] .mx-row-label { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mx-row { border-top-color: rgba(0,0,0,0.05); }
         [data-theme="light"] .mx-cell--diag { background: rgba(0,0,0,0.03); }
+        [data-theme="light"] .mx-cell--blocked {
+          background: repeating-linear-gradient(
+            -45deg,
+            rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 2px,
+            transparent 2px, transparent 8px
+          );
+        }
         [data-theme="light"] .mx-count-cell { background: #f5f5f5; border-left-color: rgba(0,0,0,0.07); }
-        [data-theme="light"] .mx-summary-title { color: rgba(0,0,0,0.4); }
-        [data-theme="light"] .mx-tag-empty { color: rgba(0,0,0,0.3); }
-        [data-theme="light"] .mx-tag--required { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45); border-color: rgba(0,0,0,0.1); }
-        [data-theme="light"] .mx-empty { color: rgba(0,0,0,0.3); }
-        [data-theme="light"] .mx-summary-panel { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.07); }
-        [data-theme="light"] .mx-summary-title { color: rgba(0,0,0,0.4); }
-        [data-theme="light"] .mx-tag-empty { color: rgba(0,0,0,0.3); }
-        [data-theme="light"] .mx-tag--required { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .mx-chart-panel { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.07); }
         [data-theme="light"] .mx-chart-title { color: rgba(0,0,0,0.45); }
         [data-theme="light"] .mx-chart-y-val { color: rgba(0,0,0,0.25); }
         [data-theme="light"] .mx-bar-track { background: rgba(0,0,0,0.08); }
         [data-theme="light"] .mx-bar-lbl { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mx-bar-num { color: rgba(0,0,0,0.6); }
+        [data-theme="light"] .mx-summary-panel { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .mx-summary-title { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .mx-tag-empty { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .mx-tag--required { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45); border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .mx-empty { color: rgba(0,0,0,0.3); }
       `}</style>
     </div>
   )

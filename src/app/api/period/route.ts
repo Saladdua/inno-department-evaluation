@@ -65,6 +65,14 @@ export async function PUT(req: Request) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const supabase = createServiceClient()
+
+  // Read previous status to detect transitions
+  const { data: previous } = await supabase
+    .from('evaluation_periods')
+    .select('status, quarter, year')
+    .eq('id', id)
+    .maybeSingle()
+
   const { data, error } = await supabase
     .from('evaluation_periods')
     .update(fields)
@@ -73,5 +81,25 @@ export async function PUT(req: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Fire broadcast notifications on status transitions
+  const prevStatus = previous?.status
+  const newStatus  = fields.status
+  const periodLabel = `Quý ${data.quarter} · ${data.year}`
+
+  if (prevStatus !== 'active' && newStatus === 'active') {
+    await supabase.from('notifications').insert({
+      type: 'period_started',
+      recipient_dept_id: null,
+      data: { period_id: id, period_label: periodLabel },
+    })
+  } else if (prevStatus !== 'closed' && newStatus === 'closed') {
+    await supabase.from('notifications').insert({
+      type: 'period_ended',
+      recipient_dept_id: null,
+      data: { period_id: id, period_label: periodLabel },
+    })
+  }
+
   return NextResponse.json(data)
 }

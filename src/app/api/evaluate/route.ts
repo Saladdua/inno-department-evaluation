@@ -138,5 +138,24 @@ export async function POST(req: Request) {
     if (scoresError) return NextResponse.json({ error: scoresError.message }, { status: 500 })
   }
 
+  // Notify target dept when evaluation is submitted
+  if (submit) {
+    const { data: evalDept } = await supabase
+      .from('departments')
+      .select('name')
+      .eq('id', evaluator_id)
+      .maybeSingle()
+
+    await supabase.from('notifications').insert({
+      type: 'evaluation_submitted',
+      recipient_dept_id: target_id,
+      data: {
+        evaluator_dept_id:   evaluator_id,
+        evaluator_dept_name: evalDept?.name ?? '',
+        period_id,
+      },
+    })
+  }
+
   return NextResponse.json({ evaluation })
 }

@@ -20,8 +20,9 @@ export default async function MatrixPage() {
 
   const { data: depts } = await supabase
     .from('departments')
-    .select('id, name, code')
-    .order('name')
+    .select('id, name, code, display_order')
+    .order('display_order', { ascending: true })
+    .order('name', { ascending: true })
 
   const entries: MatrixEntry[] = []
   if (period) {
