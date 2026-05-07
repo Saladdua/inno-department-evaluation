@@ -3,81 +3,85 @@ import { getAuthUser } from '@/lib/auth-helpers'
 import { createServiceClient } from '@/lib/supabase/server'
 
 // GET /api/notifications
-// Returns notifications visible to the current user:
-//   - dept role: recipient_dept_id = myDeptId OR broadcast (recipient_dept_id IS NULL)
-//   - admin/leadership: all notifications (or broadcasts only, depending on query param)
-// Query params: ?unreadOnly=true
+// Returns notifications visible to the current user, with per-user is_read derived
+// from notification_reads table.
 export async function GET(req: Request) {
   const user = await getAuthUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { searchParams } = new URL(req.url)
-  const unreadOnly = searchParams.get('unreadOnly') === 'true'
 
   const supabase = createServiceClient()
   const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
 
   let query = supabase
     .from('notifications')
-    .select('id, type, recipient_dept_id, data, is_read, created_at')
+    .select('id, type, recipient_dept_id, data, created_at')
     .order('created_at', { ascending: false })
     .limit(50)
 
   if (!canManageAll) {
-    // Dept: see own notifications + broadcasts
     if (user.departmentId) {
       query = query.or(`recipient_dept_id.eq.${user.departmentId},recipient_dept_id.is.null`)
     } else {
       query = query.is('recipient_dept_id', null)
     }
   }
-  // Admin/leadership: see all
 
-  if (unreadOnly) {
-    query = query.eq('is_read', false)
-  }
-
-  const { data, error } = await query
+  const { data: notifs, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+
+  const items = notifs ?? []
+  if (items.length === 0) return NextResponse.json([])
+
+  // Fetch which of these notifications the current user has already read
+  const { data: reads } = await supabase
+    .from('notification_reads')
+    .select('notification_id')
+    .eq('user_id', user.id)
+    .in('notification_id', items.map(n => n.id))
+
+  const readSet = new Set((reads ?? []).map(r => r.notification_id))
+
+  return NextResponse.json(items.map(n => ({ ...n, is_read: readSet.has(n.id) })))
 }
 
 // PATCH /api/notifications
-// Body: { ids: string[] } — mark those notifications as read
-// Or:   { all: true }    — mark all visible notifications as read
+// Body: { ids: string[] } — mark specific notifications as read for the current user
+// Body: { all: true }    — mark all visible notifications as read
 export async function PATCH(req: Request) {
   const user = await getAuthUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
   const supabase = createServiceClient()
-  const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
+
+  let ids: string[] = []
 
   if (body.all === true) {
-    let query = supabase.from('notifications').update({ is_read: true }).eq('is_read', false)
-
+    // Fetch all visible notification IDs for this user
+    const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
+    let q = supabase.from('notifications').select('id')
     if (!canManageAll && user.departmentId) {
-      query = supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('is_read', false)
-        .or(`recipient_dept_id.eq.${user.departmentId},recipient_dept_id.is.null`)
+      q = q.or(`recipient_dept_id.eq.${user.departmentId},recipient_dept_id.is.null`)
+    } else if (!canManageAll) {
+      q = q.is('recipient_dept_id', null)
     }
-
-    const { error } = await query
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ ok: true })
+    const { data } = await q
+    ids = (data ?? []).map(n => n.id)
+  } else {
+    ids = body.ids as string[]
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return NextResponse.json({ error: 'Missing ids' }, { status: 400 })
+    }
   }
 
-  const ids = body.ids as string[]
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return NextResponse.json({ error: 'Missing ids' }, { status: 400 })
-  }
+  if (ids.length === 0) return NextResponse.json({ ok: true })
 
   const { error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .in('id', ids)
+    .from('notification_reads')
+    .upsert(
+      ids.map(id => ({ user_id: user.id, notification_id: id })),
+      { onConflict: 'user_id,notification_id', ignoreDuplicates: true }
+    )
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
@@ -123,7 +127,7 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Create a notification for admin/leadership about this report
+  // Notify admin/leadership about this report
   const { data: notif } = await supabase
     .from('notifications')
     .select('data')
@@ -132,7 +136,7 @@ export async function POST(req: Request) {
 
   await supabase.from('notifications').insert({
     type: 'report_submitted',
-    recipient_dept_id: null, // broadcast to admin/leadership
+    recipient_dept_id: null,
     data: {
       ...(notif?.data ?? {}),
       reporter_dept_id: user.departmentId,
