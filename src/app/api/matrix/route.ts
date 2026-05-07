@@ -80,10 +80,14 @@ export async function POST(req: Request) {
   }
 
   if (action === 'add') {
+    // Create both directions: A→B (chosen) and B→A (mirror, so B must evaluate A back)
     const { error } = await supabase
       .from('evaluation_matrix')
       .upsert(
-        [{ period_id, evaluator_id, target_id, selected_by: user.id }],
+        [
+          { period_id, evaluator_id,        target_id,    selected_by: user.id },
+          { period_id, evaluator_id: target_id, target_id: evaluator_id, selected_by: user.id },
+        ],
         { onConflict: 'period_id,evaluator_id,target_id', ignoreDuplicates: true }
       )
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -100,12 +104,15 @@ export async function POST(req: Request) {
     })
 
   } else if (action === 'remove') {
+    // Remove both directions
     const { error } = await supabase
       .from('evaluation_matrix')
       .delete()
       .eq('period_id', period_id)
-      .eq('evaluator_id', evaluator_id)
-      .eq('target_id', target_id)
+      .or(
+        `and(evaluator_id.eq.${evaluator_id},target_id.eq.${target_id}),` +
+        `and(evaluator_id.eq.${target_id},target_id.eq.${evaluator_id})`
+      )
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   } else {

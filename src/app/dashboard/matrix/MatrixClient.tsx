@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
-import { Trash2, Info } from 'lucide-react'
+import { useState, useTransition, useMemo, useRef } from 'react'
+import { Trash2, Info, GripVertical, ArrowUpDown, X, Check } from 'lucide-react'
 
 export interface Department {
   id: string
@@ -42,6 +42,12 @@ export default function MatrixClient({
   const [entries, setEntries] = useState<MatrixEntry[]>(initialEntries)
   const [isPending, startTransition] = useTransition()
   const [confirmClear, setConfirmClear] = useState(false)
+
+  // Reorder state
+  const [reorderOpen, setReorderOpen] = useState(false)
+  const [draftOrder, setDraftOrder] = useState<Department[]>([])
+  const [isSaving, startSaving] = useTransition()
+  const dragIndexRef = useRef<number | null>(null)
 
   const canManageAll = role === 'super_admin' || role === 'leadership'
   const depts = initialDepts
@@ -118,6 +124,40 @@ export default function MatrixClient({
     })
   }
 
+  // ── Reorder helpers ──
+  function openReorder() {
+    setDraftOrder([...depts])
+    setReorderOpen(true)
+  }
+
+  function onDragStart(i: number) {
+    dragIndexRef.current = i
+  }
+
+  function onDragOver(e: React.DragEvent, i: number) {
+    e.preventDefault()
+    const from = dragIndexRef.current
+    if (from === null || from === i) return
+    const next = [...draftOrder]
+    const [item] = next.splice(from, 1)
+    next.splice(i, 0, item)
+    setDraftOrder(next)
+    dragIndexRef.current = i
+  }
+
+  function saveOrder() {
+    const updates = draftOrder.map((d, i) => ({ id: d.id, display_order: i + 1 }))
+    startSaving(async () => {
+      await fetch('/api/departments/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      setReorderOpen(false)
+      window.location.reload()
+    })
+  }
+
   // Count how many depts each evaluator is evaluating
   const evaluatingCount = useMemo(() => {
     const map: Record<string, number> = {}
@@ -162,6 +202,9 @@ export default function MatrixClient({
         </div>
         {canManageAll && (
           <div className="mx-header-right">
+            <button className="mx-btn mx-btn--ghost" onClick={openReorder}>
+              <ArrowUpDown size={13} /> Sắp xếp
+            </button>
             {confirmClear ? (
               <>
                 <span className="mx-confirm-text">Xoá toàn bộ ma trận?</span>
@@ -325,6 +368,50 @@ export default function MatrixClient({
         )}
       </div>
 
+      {/* ── Reorder Modal ── */}
+      {reorderOpen && (
+        <div className="mx-overlay" onClick={() => setReorderOpen(false)}>
+          <div className="mx-modal" onClick={e => e.stopPropagation()}>
+            <div className="mx-modal-header">
+              <span className="mx-modal-title">Sắp xếp thứ tự phòng ban</span>
+              <button className="mx-modal-close" onClick={() => setReorderOpen(false)}>
+                <X size={14} />
+              </button>
+            </div>
+            <p className="mx-modal-hint">Kéo để thay đổi thứ tự. Phòng đầu có nhiều lựa chọn nhất.</p>
+            <div className="mx-drag-list">
+              {draftOrder.map((d, i) => (
+                <div
+                  key={d.id}
+                  className="mx-drag-item"
+                  draggable
+                  onDragStart={() => onDragStart(i)}
+                  onDragOver={e => onDragOver(e, i)}
+                  onDragEnd={() => { dragIndexRef.current = null }}
+                >
+                  <span className="mx-drag-index">{i + 1}</span>
+                  <GripVertical size={14} className="mx-drag-handle" />
+                  <span className="mx-drag-name">{d.name}</span>
+                  {d.code && <span className="mx-drag-code">{d.code}</span>}
+                </div>
+              ))}
+            </div>
+            <div className="mx-modal-footer">
+              <button
+                className="mx-btn mx-btn--primary"
+                onClick={saveOrder}
+                disabled={isSaving}
+              >
+                <Check size={13} /> {isSaving ? 'Đang lưu...' : 'Lưu thứ tự'}
+              </button>
+              <button className="mx-btn mx-btn--ghost" onClick={() => setReorderOpen(false)}>
+                Huỷ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .mx-root { display: flex; flex-direction: column; gap: 20px; font-family: var(--font-sans), sans-serif; }
 
@@ -481,6 +568,52 @@ export default function MatrixClient({
         .mx-tag--active { background: rgba(179,0,0,0.12); color: rgba(255,120,120,0.9); border: 1px solid rgba(179,0,0,0.25); }
         .mx-tag--required { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.1); }
 
+        .mx-btn--primary { background: rgba(179,0,0,0.2); color: rgba(255,120,120,0.9); border: 1px solid rgba(179,0,0,0.25); }
+        .mx-btn--primary:hover:not(:disabled) { background: rgba(179,0,0,0.3); }
+
+        /* Reorder modal */
+        .mx-overlay {
+          position: fixed; inset: 0; z-index: 200;
+          background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+          display: flex; align-items: center; justify-content: center;
+          animation: mxFadeUp 0.2s ease both;
+        }
+        .mx-modal {
+          background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px; width: 360px; max-width: calc(100vw - 32px);
+          box-shadow: 0 24px 64px rgba(0,0,0,0.8);
+          display: flex; flex-direction: column; overflow: hidden;
+        }
+        .mx-modal-header {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 18px 20px 12px;
+          border-bottom: 1px solid rgba(255,255,255,0.07);
+        }
+        .mx-modal-title { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.85); letter-spacing: 0.02em; }
+        .mx-modal-close { background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.3); display: flex; align-items: center; padding: 2px; }
+        .mx-modal-close:hover { color: rgba(255,255,255,0.7); }
+        .mx-modal-hint { font-size: 11.5px; color: rgba(255,255,255,0.3); font-style: italic; padding: 10px 20px 4px; }
+
+        .mx-drag-list { padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 400px; overflow-y: auto; }
+        .mx-drag-item {
+          display: flex; align-items: center; gap: 10px;
+          padding: 9px 12px; border-radius: 8px;
+          background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+          cursor: grab; user-select: none;
+          transition: background 0.1s, border-color 0.1s;
+        }
+        .mx-drag-item:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+        .mx-drag-item:active { cursor: grabbing; background: rgba(179,0,0,0.08); border-color: rgba(179,0,0,0.2); }
+        .mx-drag-index { font-size: 11px; font-weight: 700; color: rgba(179,0,0,0.7); width: 18px; text-align: right; flex-shrink: 0; font-family: monospace; }
+        .mx-drag-handle { color: rgba(255,255,255,0.2); flex-shrink: 0; }
+        .mx-drag-name { flex: 1; font-size: 12.5px; color: rgba(255,255,255,0.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .mx-drag-code { font-size: 11px; color: rgba(255,255,255,0.3); font-family: monospace; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+
+        .mx-modal-footer {
+          display: flex; align-items: center; gap: 8px;
+          padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.07);
+        }
+
         /* ── Light mode ── */
         [data-theme="light"] .mx-period { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mx-btn--ghost { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.5); }
@@ -515,6 +648,21 @@ export default function MatrixClient({
         [data-theme="light"] .mx-tag-empty { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .mx-tag--required { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .mx-empty { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .mx-overlay { background: rgba(0,0,0,0.45); }
+        [data-theme="light"] .mx-modal { background: #fff; border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .mx-modal-header { border-bottom-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .mx-modal-title { color: rgba(0,0,0,0.85); }
+        [data-theme="light"] .mx-modal-close { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .mx-modal-close:hover { color: rgba(0,0,0,0.7); }
+        [data-theme="light"] .mx-modal-hint { color: rgba(0,0,0,0.35); }
+        [data-theme="light"] .mx-modal-footer { border-top-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .mx-drag-item { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .mx-drag-item:hover { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.12); }
+        [data-theme="light"] .mx-drag-handle { color: rgba(0,0,0,0.2); }
+        [data-theme="light"] .mx-drag-name { color: rgba(0,0,0,0.8); }
+        [data-theme="light"] .mx-drag-code { color: rgba(0,0,0,0.4); background: rgba(0,0,0,0.05); }
+        [data-theme="light"] .mx-btn--primary { background: rgba(179,0,0,0.1); color: #B30000; border-color: rgba(179,0,0,0.2); }
+        [data-theme="light"] .mx-btn--primary:hover:not(:disabled) { background: rgba(179,0,0,0.18); }
       `}</style>
     </div>
   )
