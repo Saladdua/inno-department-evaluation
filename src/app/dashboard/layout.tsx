@@ -12,6 +12,7 @@ import {
   FileBarChart,
   Users,
   Building2,
+  DatabaseZap,
   LogOut,
   ChevronRight,
   Sun,
@@ -26,8 +27,9 @@ const NAV = [
   { href: '/dashboard/status',   label: 'Tình trạng',         icon: Activity,           roles: ['super_admin','leadership','department'] },
   { href: '/dashboard/results',  label: 'Kết quả',            icon: BarChart2,          roles: ['super_admin','leadership','department'] },
   { href: '/dashboard/results/detail', label: 'Kết quả chi tiết', icon: FileBarChart,   roles: ['super_admin','leadership'] },
-  { href: '/dashboard/departments',    label: 'Phòng ban',          icon: Building2,      roles: ['super_admin', 'leadership'] },
-  { href: '/dashboard/users',          label: 'Tài khoản',          icon: Users,          roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/departments',      label: 'Phòng ban',          icon: Building2,      roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/users',            label: 'Tài khoản',          icon: Users,          roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/data-processing', label: 'Xử lí Dữ liệu',     icon: DatabaseZap,    roles: ['super_admin', 'leadership'] },
 ] as const
 
 type Role = 'super_admin' | 'leadership' | 'department'

@@ -396,6 +396,8 @@ function CriteriaTable({
                             <option value="google_sheets">Google Sheets</option>
                             <option value="1office">1Office</option>
                             <option value="gitiho">Gitiho</option>
+                            <option value="timesheets">Timesheets</option>
+                            <option value="bang_luong">Bảng lương</option>
                           </select>
                         )}
                       </div>
@@ -512,6 +514,8 @@ function AddCriterionModal({
                 <option value="google_sheets">Google Sheets</option>
                 <option value="1office">1Office</option>
                 <option value="gitiho">Gitiho</option>
+                <option value="timesheets">Timesheets</option>
+                <option value="bang_luong">Bảng lương</option>
               </select>
             </div>
           )}

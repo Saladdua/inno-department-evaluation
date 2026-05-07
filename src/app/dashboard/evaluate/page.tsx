@@ -34,7 +34,7 @@ export default async function EvaluatePage() {
   const [criteriaResult, deptsResult] = await Promise.all([
     supabase
       .from('criteria')
-      .select('id, code, name, weight, input_type, display_order')
+      .select('id, code, name, weight, input_type, auto_source, display_order')
       .eq('period_id', period.id)
       .order('display_order'),
 

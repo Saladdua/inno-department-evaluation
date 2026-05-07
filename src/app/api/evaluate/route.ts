@@ -91,10 +91,12 @@ export async function POST(req: Request) {
     }
   }
 
-  // Compute total_score from scores * weights on submit
+  // Compute total_score: Σ(raw * weight) / Σ(weight)  →  0–100 scale
   let total_score: number | null = null
   if (submit && Array.isArray(scores)) {
-    total_score = scores.reduce((sum, s) => sum + (s.raw_score ?? 0) * (s.weight ?? 1), 0)
+    const totalWeight = scores.reduce((sum, s) => sum + (s.weight ?? 1), 0)
+    const weightedSum = scores.reduce((sum, s) => sum + (s.raw_score ?? 0) * (s.weight ?? 1), 0)
+    total_score = totalWeight > 0 ? weightedSum / totalWeight : 0
   }
 
   const { data: evaluation, error: evalError } = await supabase

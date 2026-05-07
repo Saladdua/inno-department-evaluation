@@ -9,6 +9,7 @@ export interface Criterion {
   name: string
   weight: number
   input_type: 'manual' | 'auto'
+  auto_source: string | null
   display_order: number
 }
 
@@ -148,10 +149,12 @@ export default function EvaluateClient({
   }
 
   const totalScore = useMemo(() => {
-    return criteria.reduce((sum, c) => {
+    const totalWeight = criteria.reduce((sum, c) => sum + Number(c.weight), 0)
+    const weightedSum = criteria.reduce((sum, c) => {
       const raw = parseFloat(draftScores[c.id]?.raw_score ?? '')
       return isNaN(raw) ? sum : sum + raw * Number(c.weight)
     }, 0)
+    return totalWeight > 0 ? weightedSum / totalWeight : 0
   }, [draftScores, criteria])
 
   const allScored = useMemo(() => {
@@ -159,7 +162,7 @@ export default function EvaluateClient({
       const v = draftScores[c.id]?.raw_score ?? ''
       if (v === '') return false
       const n = parseFloat(v)
-      return !isNaN(n) && n >= 0 && n <= 10
+      return !isNaN(n) && n >= 0 && n <= 100
     })
   }, [draftScores, criteria])
 
@@ -382,38 +385,42 @@ export default function EvaluateClient({
                     <th className="ev-th th-code">Mã</th>
                     <th className="ev-th th-name">Tiêu chí</th>
                     <th className="ev-th th-weight">Hệ số</th>
-                    <th className="ev-th th-score">Điểm (0–10)</th>
+                    <th className="ev-th th-score">Điểm (0–100)</th>
                     <th className="ev-th th-weighted">Quy đổi</th>
                   </tr>
                 </thead>
                 <tbody>
                   {criteria.map(c => {
+                    const isAuto = c.input_type === 'auto'
                     const draft = draftScores[c.id] ?? { raw_score: '', note: '' }
                     const rawVal = parseFloat(draft.raw_score)
                     const weighted = !isNaN(rawVal) ? rawVal * Number(c.weight) : null
-                    const isInvalid = draft.raw_score !== '' && (isNaN(rawVal) || rawVal < 0 || rawVal > 10)
+                    const isInvalid = !isAuto && draft.raw_score !== '' && (isNaN(rawVal) || rawVal < 0 || rawVal > 100)
 
                     return (
-                      <tr key={c.id} className="ev-tr">
+                      <tr key={c.id} className={`ev-tr ${isAuto ? 'ev-tr--auto' : ''}`}>
                         <td className="ev-td td-code">{c.code ?? '—'}</td>
-                        <td className="ev-td td-name">{c.name}</td>
+                        <td className="ev-td td-name">
+                          {c.name}
+                          {isAuto && <span className="ev-auto-badge">Tự động</span>}
+                        </td>
                         <td className="ev-td td-weight">×{Number(c.weight)}</td>
                         <td className="ev-td td-score">
                           <input
                             type="number"
                             min="0"
-                            max="10"
-                            step="0.5"
+                            max="100"
+                            step="1"
                             value={draft.raw_score}
                             onChange={e => handleScoreChange(c.id, 'raw_score', e.target.value)}
-                            disabled={!canEdit || isPending}
-                            className={`ev-score-input ${isInvalid ? 'ev-score-input--invalid' : ''}`}
+                            disabled={isAuto || !canEdit || isPending}
+                            className={`ev-score-input ${isInvalid ? 'ev-score-input--invalid' : ''} ${isAuto ? 'ev-score-input--auto' : ''}`}
                             placeholder="—"
                           />
                         </td>
                         <td className="ev-td td-weighted">
                           {weighted != null
-                            ? <span className="ev-weighted-val">{weighted.toFixed(2)}</span>
+                            ? <span className="ev-weighted-val">{weighted.toFixed(1)}</span>
                             : <span className="ev-weighted-empty">—</span>
                           }
                         </td>
@@ -426,7 +433,7 @@ export default function EvaluateClient({
                     <td colSpan={4} className="ev-tfoot-label">Tổng điểm quy đổi</td>
                     <td className="ev-tfoot-val">
                       <span className={`ev-total ${hasAnyScore ? 'ev-total--active' : ''}`}>
-                        {hasAnyScore ? totalScore.toFixed(2) : '—'}
+                        {hasAnyScore ? Math.round(totalScore) : '—'}
                       </span>
                     </td>
                   </tr>
@@ -757,7 +764,18 @@ export default function EvaluateClient({
         }
         .ev-score-input:disabled { opacity: 0.4; cursor: not-allowed; }
         .ev-score-input--invalid { border-color: rgba(255,80,80,0.5); background: rgba(255,50,50,0.05); }
+        .ev-score-input--auto { opacity: 0.6; cursor: not-allowed; background: rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.15); }
         .ev-score-input::-webkit-inner-spin-button { opacity: 0.5; }
+
+        .ev-tr--auto { background: rgba(251,191,36,0.02); }
+        .ev-auto-badge {
+          display: inline-flex; align-items: center;
+          margin-left: 7px;
+          padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;
+          background: rgba(251,191,36,0.1); color: rgba(251,191,36,0.8);
+          border: 1px solid rgba(251,191,36,0.15); letter-spacing: 0.04em;
+          vertical-align: middle;
+        }
 
         .ev-weighted-val { color: rgba(179,0,0,0.9); font-weight: 600; font-size: 13px; }
         .ev-weighted-empty { color: rgba(255,255,255,0.2); }

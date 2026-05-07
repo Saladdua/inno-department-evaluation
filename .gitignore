@@ -50,3 +50,5 @@ service-account.json
 CLAUDE.md
 AGENTS.md
 .claude/
+# Added by code-review-graph
+.code-review-graph/
