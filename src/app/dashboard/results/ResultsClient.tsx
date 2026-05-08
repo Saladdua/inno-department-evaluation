@@ -15,6 +15,7 @@ export interface CriterionInfo {
   code: string | null;
   name: string;
   weight: number;
+  input_type: 'manual' | 'auto';
 }
 
 export interface CriterionAvg {
@@ -739,11 +740,12 @@ export default function ResultsClient({
               const barPct = pct(r.avgScore, maxScore);
               const rankColor = r.rank <= 3 ? RANK_COLOR[r.rank] : undefined;
 
+              const canExpand = canManageAll || r.isMyDept
               return (
                 <Fragment key={r.id}>
                   <tr
-                    className={`rs-tr ${r.isMyDept ? "rs-tr--mine" : ""} ${isExpanded ? "rs-tr--expanded" : ""}`}
-                    onClick={() => toggle(r.id)}
+                    className={`rs-tr ${r.isMyDept ? "rs-tr--mine" : ""} ${isExpanded ? "rs-tr--expanded" : ""} ${!canExpand ? "rs-tr--locked" : ""}`}
+                    onClick={() => canExpand && toggle(r.id)}
                   >
                     <td className="rs-td td-rank">
                       {r.avgScore != null ? (
@@ -806,14 +808,14 @@ export default function ResultsClient({
                     </td>
 
                     <td className="rs-td td-expand">
-                      {isExpanded ? (
+                      {canExpand && (isExpanded ? (
                         <ChevronDown
                           size={13}
                           className="rs-chevron rs-chevron--open"
                         />
                       ) : (
                         <ChevronRight size={13} className="rs-chevron" />
-                      )}
+                      ))}
                     </td>
                   </tr>
 
@@ -1013,6 +1015,8 @@ const rsStyles = `
   .rs-tr:hover { background: rgba(255,255,255,0.03); }
   .rs-tr--mine { background: rgba(179,0,0,0.04); }
   .rs-tr--mine:hover { background: rgba(179,0,0,0.07); }
+  .rs-tr--locked { cursor: default; }
+  .rs-tr--locked:hover { background: transparent; }
   .rs-tr--expanded { background: rgba(255,255,255,0.03); }
   .rs-tr:last-child:not(.rs-detail-row) { border-bottom: none; }
   .rs-td { padding: 12px 14px; vertical-align: middle; }

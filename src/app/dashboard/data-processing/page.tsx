@@ -5,7 +5,7 @@ import DataProcessingClient from './DataProcessingClient'
 
 export default async function DataProcessingPage() {
   const session = await auth()
-  if (!session || !['super_admin', 'leadership'].includes(session.user.role)) redirect('/dashboard')
+  if (!session || session.user.role !== 'super_admin') redirect('/dashboard')
 
   const supabase = createServiceClient()
 

@@ -12,9 +12,15 @@ export async function GET(req: Request) {
   const supabase = createServiceClient()
   const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
 
+  // Types visible to each role
+  const visibleTypes = canManageAll
+    ? ['report_submitted', 'period_started', 'period_ended']
+    : ['chosen_for_evaluation', 'evaluation_submitted', 'period_started', 'period_ended', 'report_resolved']
+
   let query = supabase
     .from('notifications')
     .select('id, type, recipient_dept_id, data, created_at')
+    .in('type', visibleTypes)
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -128,11 +134,12 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Notify admin/leadership about this report
-  const { data: notif } = await supabase
-    .from('notifications')
-    .select('data')
-    .eq('id', notification_id)
-    .maybeSingle()
+  const [{ data: notif }, { data: reporterDept }] = await Promise.all([
+    supabase.from('notifications').select('data').eq('id', notification_id).maybeSingle(),
+    user.departmentId
+      ? supabase.from('departments').select('name').eq('id', user.departmentId).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
 
   await supabase.from('notifications').insert({
     type: 'report_submitted',
@@ -140,6 +147,7 @@ export async function POST(req: Request) {
     data: {
       ...(notif?.data ?? {}),
       reporter_dept_id: user.departmentId,
+      reporter_dept_name: reporterDept?.name ?? '',
       reason,
       report_id: data.id,
     },

@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Sun,
   Moon,
+  Flag,
 } from 'lucide-react'
 import { useTheme } from '@/components/providers'
 import NotificationBell from '@/components/NotificationBell'
@@ -30,6 +31,7 @@ const NAV = [
   { href: '/dashboard/results/detail', label: 'Kết quả chi tiết', icon: FileBarChart,   roles: ['super_admin','leadership'] },
   { href: '/dashboard/departments',      label: 'Phòng ban',          icon: Building2,      roles: ['super_admin', 'leadership'] },
   { href: '/dashboard/users',            label: 'Tài khoản',          icon: Users,          roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/reports',          label: 'Báo cáo',            icon: Flag,           roles: ['super_admin', 'leadership'] },
   { href: '/dashboard/data-processing', label: 'Xử lí Dữ liệu',     icon: DatabaseZap,    roles: ['super_admin'] },
 ] as const
 

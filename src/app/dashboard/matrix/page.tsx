@@ -12,7 +12,7 @@ export default async function MatrixPage() {
 
   const { data: period } = await supabase
     .from('evaluation_periods')
-    .select('id, quarter, year')
+    .select('id, quarter, year, matrix_locked')
     .order('year', { ascending: false })
     .order('quarter', { ascending: false })
     .limit(1)
@@ -44,6 +44,7 @@ export default async function MatrixPage() {
       role={role}
       myDeptId={myDeptId}
       myUserId={myUserId}
+      matrixLocked={period?.matrix_locked ?? false}
     />
   )
 }

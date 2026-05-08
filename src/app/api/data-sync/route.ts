@@ -4,9 +4,10 @@ import { createServiceClient } from '@/lib/supabase/server'
 
 // POST /api/data-sync
 // Body: { periodId, source: 'bang_luong'|'timesheets', scores: [{deptId, score}] }
+// Writes auto scores globally per department — no dependency on existing evaluations.
 export async function POST(req: Request) {
   const user = await getAuthUser(req)
-  if (!user || !['super_admin', 'leadership'].includes(user.role)) {
+  if (!user || user.role !== 'super_admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient()
 
-  // Find criteria with this auto_source for the period
+  // Find auto criteria for this source and period
   const { data: criteriaData, error: criteriaErr } = await supabase
     .from('criteria')
     .select('id, weight')
@@ -38,48 +39,23 @@ export async function POST(req: Request) {
     )
   }
 
-  const deptIds = scores.map(s => s.deptId)
-  const scoreMap = new Map(scores.map(s => [s.deptId, s.score]))
+  const now = new Date().toISOString()
 
-  // All evaluations targeting these departments in this period
-  const { data: evals, error: evalsErr } = await supabase
-    .from('evaluations')
-    .select('id, target_id')
-    .eq('period_id', periodId)
-    .in('target_id', deptIds)
-
-  if (evalsErr) return NextResponse.json({ error: evalsErr.message }, { status: 500 })
-  if (!evals || evals.length === 0) {
-    return NextResponse.json({ updated: 0, message: 'Chưa có đánh giá nào để cập nhật' })
-  }
-
-  const rows: Array<{
-    evaluation_id: string
-    criteria_id: string
-    raw_score: number
-    weighted_score: number
-    updated_at: string
-  }> = []
-
-  for (const ev of evals) {
-    const score = scoreMap.get(ev.target_id)
-    if (score === undefined) continue
-    for (const c of criteriaData) {
-      rows.push({
-        evaluation_id: ev.id,
-        criteria_id: c.id,
-        raw_score: score,
-        weighted_score: score * Number(c.weight),
-        updated_at: new Date().toISOString(),
-      })
-    }
-  }
-
-  if (rows.length === 0) return NextResponse.json({ updated: 0 })
+  // Upsert one row per (dept × auto_criteria) — global, independent of evaluators
+  const rows = scores.flatMap(({ deptId, score }) =>
+    criteriaData.map(c => ({
+      period_id:   periodId,
+      dept_id:     deptId,
+      criteria_id: c.id,
+      source,
+      raw_score:   Math.max(0, Math.min(100, score)),
+      updated_at:  now,
+    }))
+  )
 
   const { error: upsertErr } = await supabase
-    .from('evaluation_scores')
-    .upsert(rows, { onConflict: 'evaluation_id,criteria_id' })
+    .from('auto_scores')
+    .upsert(rows, { onConflict: 'period_id,dept_id,criteria_id' })
 
   if (upsertErr) return NextResponse.json({ error: upsertErr.message }, { status: 500 })
 

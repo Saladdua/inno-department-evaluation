@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo, useRef } from 'react'
-import { Trash2, Info, GripVertical, ArrowUpDown, X, Check } from 'lucide-react'
+import { Trash2, Info, GripVertical, ArrowUpDown, X, Check, Lock, Unlock } from 'lucide-react'
 
 export interface Department {
   id: string
@@ -30,6 +30,7 @@ export default function MatrixClient({
   role,
   myDeptId,
   myUserId,
+  matrixLocked: initialLocked,
 }: {
   initialDepts: Department[]
   initialEntries: MatrixEntry[]
@@ -38,10 +39,15 @@ export default function MatrixClient({
   role: Role
   myDeptId: string | null
   myUserId: string | null
+  matrixLocked: boolean
 }) {
   const [entries, setEntries] = useState<MatrixEntry[]>(initialEntries)
   const [isPending, startTransition] = useTransition()
   const [confirmClear, setConfirmClear] = useState(false)
+
+  // Lock state
+  const [isLocked, setIsLocked] = useState(initialLocked)
+  const [isLocking, startLocking] = useTransition()
 
   // Reorder state
   const [reorderOpen, setReorderOpen] = useState(false)
@@ -79,6 +85,7 @@ export default function MatrixClient({
     if (rowId === colId) return false
     if (!isUpperTriangle(rowId, colId)) return false
     if (canManageAll) return true
+    if (isLocked) return false
     return role === 'department' && myDeptId === rowId
   }
 
@@ -158,6 +165,20 @@ export default function MatrixClient({
     })
   }
 
+  function toggleLock() {
+    if (!periodId) return
+    const next = !isLocked
+    setIsLocked(next)
+    startLocking(async () => {
+      const res = await fetch('/api/matrix', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_id: periodId, locked: next }),
+      })
+      if (!res.ok) setIsLocked(!next) // revert on failure
+    })
+  }
+
   // Count how many depts each evaluator is evaluating
   const evaluatingCount = useMemo(() => {
     const map: Record<string, number> = {}
@@ -202,6 +223,15 @@ export default function MatrixClient({
         </div>
         {canManageAll && (
           <div className="mx-header-right">
+            <button
+              className={`mx-btn ${isLocked ? 'mx-btn--locked' : 'mx-btn--ghost'}`}
+              onClick={toggleLock}
+              disabled={isLocking || !periodId}
+              title={isLocked ? 'Mở khóa ma trận' : 'Khóa ma trận'}
+            >
+              {isLocked ? <Lock size={13} /> : <Unlock size={13} />}
+              {isLocked ? 'Đang khóa' : 'Khóa'}
+            </button>
             <button className="mx-btn mx-btn--ghost" onClick={openReorder}>
               <ArrowUpDown size={13} /> Sắp xếp
             </button>
@@ -220,8 +250,16 @@ export default function MatrixClient({
         )}
       </div>
 
+      {/* ── Locked banner (department view) ── */}
+      {isLocked && role === 'department' && (
+        <div className="mx-locked-banner">
+          <Lock size={13} className="mx-locked-icon" />
+          <span>Ma trận đang bị khóa — quản trị viên đã tắt chức năng chỉnh sửa.</span>
+        </div>
+      )}
+
       {/* ── Role hint ── */}
-      {role === 'department' && myDeptId && (
+      {role === 'department' && myDeptId && !isLocked && (
         <div className="mx-hint">
           <span className="mx-hint-dept">{depts.find(d => d.id === myDeptId) ? deptLabel(depts.find(d => d.id === myDeptId)!) : ''}</span>
           {isLastDept ? (
@@ -443,6 +481,18 @@ export default function MatrixClient({
         .mx-btn--ghost:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.7); }
         .mx-btn--danger { background: rgba(255,50,50,0.15); color: rgba(255,100,100,0.9); border: 1px solid rgba(255,50,50,0.2); }
         .mx-btn--danger:hover { background: rgba(255,50,50,0.22); }
+        .mx-btn--locked { background: rgba(251,191,36,0.12); color: rgba(251,191,36,0.9); border: 1px solid rgba(251,191,36,0.25); }
+        .mx-btn--locked:hover:not(:disabled) { background: rgba(251,191,36,0.2); }
+
+        /* Locked banner */
+        .mx-locked-banner {
+          display: flex; align-items: center; gap: 8px;
+          font-size: 12.5px; color: rgba(251,191,36,0.85);
+          background: rgba(251,191,36,0.06); border: 1px solid rgba(251,191,36,0.18);
+          border-left: 3px solid rgba(251,191,36,0.5); border-radius: 8px;
+          padding: 10px 14px; animation: mxFadeUp 0.4s 0.05s both;
+        }
+        .mx-locked-icon { flex-shrink: 0; color: rgba(251,191,36,0.7); }
 
         /* Hint */
         .mx-hint {
@@ -647,6 +697,9 @@ export default function MatrixClient({
         [data-theme="light"] .mx-summary-title { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mx-tag-empty { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .mx-tag--required { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45); border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .mx-btn--locked { background: rgba(180,130,0,0.08); color: #a07800; border-color: rgba(180,130,0,0.2); }
+        [data-theme="light"] .mx-locked-banner { background: rgba(180,130,0,0.06); border-color: rgba(180,130,0,0.18); color: rgba(140,90,0,0.9); }
+        [data-theme="light"] .mx-locked-icon { color: rgba(140,90,0,0.6); }
         [data-theme="light"] .mx-empty { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .mx-overlay { background: rgba(0,0,0,0.45); }
         [data-theme="light"] .mx-modal { background: #fff; border-color: rgba(0,0,0,0.1); }

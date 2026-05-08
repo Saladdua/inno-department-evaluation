@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { Bell, X, AlertTriangle, CheckCircle2, CalendarClock, CalendarCheck, Flag } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Bell, X, AlertTriangle, CheckCircle2, CalendarClock, CalendarCheck, Flag, ShieldCheck } from 'lucide-react'
 
 interface Notification {
   id: string
-  type: 'chosen_for_evaluation' | 'evaluation_submitted' | 'period_started' | 'period_ended' | 'report_submitted'
+  type: 'chosen_for_evaluation' | 'evaluation_submitted' | 'period_started' | 'period_ended' | 'report_submitted' | 'report_resolved'
   recipient_dept_id: string | null
   data: Record<string, string>
   is_read: boolean
@@ -29,6 +30,7 @@ function NotifIcon({ type }: { type: Notification['type'] }) {
   if (type === 'period_started')        return <CalendarClock size={14} />
   if (type === 'period_ended')          return <CalendarCheck size={14} />
   if (type === 'report_submitted')      return <Flag          size={14} />
+  if (type === 'report_resolved')       return <ShieldCheck   size={14} />
   return <Bell size={14} />
 }
 
@@ -43,11 +45,33 @@ function notifTitle(n: Notification): string {
   if (n.type === 'period_ended')
     return `Kỳ đánh giá ${d.period_label ?? ''} đã kết thúc`
   if (n.type === 'report_submitted')
-    return `Báo cáo từ ${d.evaluator_dept_name ?? 'một phòng ban'}`
+    return `Báo cáo từ ${d.reporter_dept_name ?? 'một phòng ban'} về ${d.evaluator_dept_name ?? '—'}`
+  if (n.type === 'report_resolved') {
+    if (d.role === 'reporter') {
+      return d.action === 'approve'
+        ? `Báo cáo của bạn được chấp thuận — lựa chọn của ${d.evaluator_dept_name ?? 'phòng kia'} đã bị gỡ`
+        : `Báo cáo của bạn đã được đóng bởi quản trị`
+    }
+    return d.action === 'approve'
+      ? `Lựa chọn đánh giá của bạn đối với ${d.reporter_dept_name ?? 'một phòng ban'} đã bị gỡ`
+      : `Báo cáo từ ${d.reporter_dept_name ?? 'một phòng ban'} về lựa chọn của bạn đã được đóng`
+  }
   return 'Thông báo'
 }
 
+// Destination URL when a notification is clicked
+function notifHref(n: Notification): string | null {
+  if (n.type === 'chosen_for_evaluation') return '/dashboard/matrix'
+  if (n.type === 'evaluation_submitted')  return '/dashboard/results'
+  if (n.type === 'report_submitted')      return '/dashboard/reports'
+  if (n.type === 'report_resolved')       return '/dashboard/matrix'
+  if (n.type === 'period_started')        return '/dashboard/status'
+  if (n.type === 'period_ended')          return '/dashboard/status'
+  return null
+}
+
 export default function NotificationBell({ deptId }: { deptId: string | null }) {
+  const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -75,7 +99,6 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
     return () => clearInterval(id)
   }, [fetchNotifications])
 
-  // Close on outside click (checks both bell and popup)
   useEffect(() => {
     if (!open) return
     function handle(e: MouseEvent) {
@@ -115,6 +138,15 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
       body: JSON.stringify({ ids: [id] }),
     })
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
+  }
+
+  function handleItemClick(n: Notification) {
+    if (!n.is_read) markRead(n.id)
+    const href = notifHref(n)
+    if (href) {
+      setOpen(false)
+      router.push(href)
+    }
   }
 
   async function submitReport(notifId: string) {
@@ -159,65 +191,77 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
       <div className="nb-list">
         {notifications.length === 0 ? (
           <div className="nb-empty">Không có thông báo</div>
-        ) : notifications.map(n => (
-          <div
-            key={n.id}
-            className={`nb-item ${!n.is_read ? 'nb-item--unread' : ''}`}
-            onClick={() => !n.is_read && markRead(n.id)}
-          >
-            <div className={`nb-item-icon nb-icon--${n.type}`}>
-              <NotifIcon type={n.type} />
-            </div>
-            <div className="nb-item-body">
-              <p className="nb-item-text">{notifTitle(n)}</p>
-              <span className="nb-item-time">{timeAgo(n.created_at)}</span>
+        ) : notifications.map(n => {
+          const href = notifHref(n)
+          return (
+            <div
+              key={n.id}
+              className={`nb-item ${!n.is_read ? 'nb-item--unread' : ''} ${href ? 'nb-item--nav' : ''}`}
+              onClick={() => handleItemClick(n)}
+            >
+              <div className={`nb-item-icon nb-icon--${n.type}`}>
+                <NotifIcon type={n.type} />
+              </div>
+              <div className="nb-item-body">
+                <p className="nb-item-text">{notifTitle(n)}</p>
+                <span className="nb-item-time">{timeAgo(n.created_at)}</span>
+                {href && (
+                  <span className="nb-item-cta">
+                    {n.type === 'chosen_for_evaluation' && 'Xem ma trận →'}
+                    {n.type === 'evaluation_submitted'  && 'Xem kết quả →'}
+                    {n.type === 'report_submitted'      && 'Xem báo cáo →'}
+                    {n.type === 'report_resolved'       && 'Xem ma trận →'}
+                    {(n.type === 'period_started' || n.type === 'period_ended') && 'Xem tình trạng →'}
+                  </span>
+                )}
 
-              {n.type === 'chosen_for_evaluation' && deptId && (
-                <div className="nb-report-wrap">
-                  {reportStatus[n.id] === 'done' ? (
-                    <span className="nb-report-done">Đã gửi báo cáo</span>
-                  ) : reportingId === n.id ? (
-                    <div className="nb-report-form">
-                      <textarea
-                        className="nb-report-input"
-                        placeholder="Lý do báo cáo..."
-                        value={reportReason}
-                        onChange={e => setReportReason(e.target.value)}
-                        rows={2}
-                      />
-                      <div className="nb-report-actions">
-                        <button
-                          className="nb-btn nb-btn--primary"
-                          disabled={reportStatus[n.id] === 'pending'}
-                          onClick={() => submitReport(n.id)}
-                        >
-                          Gửi
-                        </button>
-                        <button
-                          className="nb-btn nb-btn--ghost"
-                          onClick={() => { setReportingId(null); setReportReason('') }}
-                        >
-                          Huỷ
-                        </button>
+                {n.type === 'chosen_for_evaluation' && deptId && (
+                  <div className="nb-report-wrap" onClick={e => e.stopPropagation()}>
+                    {reportStatus[n.id] === 'done' ? (
+                      <span className="nb-report-done">Đã gửi báo cáo</span>
+                    ) : reportingId === n.id ? (
+                      <div className="nb-report-form">
+                        <textarea
+                          className="nb-report-input"
+                          placeholder="Lý do báo cáo..."
+                          value={reportReason}
+                          onChange={e => setReportReason(e.target.value)}
+                          rows={2}
+                        />
+                        <div className="nb-report-actions">
+                          <button
+                            className="nb-btn nb-btn--primary"
+                            disabled={reportStatus[n.id] === 'pending'}
+                            onClick={() => submitReport(n.id)}
+                          >
+                            Gửi
+                          </button>
+                          <button
+                            className="nb-btn nb-btn--ghost"
+                            onClick={() => { setReportingId(null); setReportReason('') }}
+                          >
+                            Huỷ
+                          </button>
+                        </div>
+                        {reportStatus[n.id] === 'error' && (
+                          <span className="nb-report-error">Gửi thất bại, thử lại</span>
+                        )}
                       </div>
-                      {reportStatus[n.id] === 'error' && (
-                        <span className="nb-report-error">Gửi thất bại, thử lại</span>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      className="nb-btn nb-btn--report"
-                      onClick={e => { e.stopPropagation(); setReportingId(n.id) }}
-                    >
-                      <Flag size={11} /> Báo cáo
-                    </button>
-                  )}
-                </div>
-              )}
+                    ) : (
+                      <button
+                        className="nb-btn nb-btn--report"
+                        onClick={() => setReportingId(n.id)}
+                      >
+                        <Flag size={11} /> Báo cáo
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {!n.is_read && <span className="nb-unread-dot" />}
             </div>
-            {!n.is_read && <span className="nb-unread-dot" />}
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <style>{`
@@ -257,8 +301,10 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
           background: #1c1c1c;
         }
         .nb-item:last-child { border-bottom: none; }
-        .nb-item--unread { background: #221616; cursor: pointer; }
-        .nb-item--unread:hover { background: #281818; }
+        .nb-item--unread { background: #221616; }
+        .nb-item--nav { cursor: pointer; }
+        .nb-item--nav:hover { background: #242424; }
+        .nb-item--unread.nb-item--nav:hover { background: #2a1818; }
 
         .nb-item-icon {
           width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
@@ -269,10 +315,12 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
         .nb-icon--period_started         { background: rgba(99,102,241,0.15); color: #6366f1; }
         .nb-icon--period_ended           { background: rgba(148,163,184,0.15); color: #94a3b8; }
         .nb-icon--report_submitted       { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .nb-icon--report_resolved        { background: rgba(34,197,94,0.15); color: #22c55e; }
 
         .nb-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
         .nb-item-text { font-size: 12.5px; color: rgba(255,255,255,0.82); line-height: 1.4; margin: 0; font-family: var(--font-sans), sans-serif; }
         .nb-item-time { font-size: 11px; color: rgba(255,255,255,0.28); font-family: var(--font-sans), sans-serif; }
+        .nb-item-cta { font-size: 11px; color: rgba(179,0,0,0.7); font-family: var(--font-sans), sans-serif; margin-top: 1px; }
 
         .nb-unread-dot {
           width: 6px; height: 6px; border-radius: 50%; background: #B30000;
@@ -314,9 +362,11 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
         [data-theme="light"] .nb-list { background: #ffffff; }
         [data-theme="light"] .nb-item { background: #ffffff; border-bottom-color: rgba(0,0,0,0.06); }
         [data-theme="light"] .nb-item--unread { background: #fff8f8; }
-        [data-theme="light"] .nb-item--unread:hover { background: #fff0f0; }
+        [data-theme="light"] .nb-item--nav:hover { background: #f7f7f7; }
+        [data-theme="light"] .nb-item--unread.nb-item--nav:hover { background: #fff0f0; }
         [data-theme="light"] .nb-item-text { color: rgba(0,0,0,0.8); }
         [data-theme="light"] .nb-item-time { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .nb-item-cta { color: #B30000; }
         [data-theme="light"] .nb-empty { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .nb-report-input { background: #f5f5f5; border-color: rgba(0,0,0,0.14); color: rgba(0,0,0,0.85); }
         [data-theme="light"] .nb-btn--ghost { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45); }

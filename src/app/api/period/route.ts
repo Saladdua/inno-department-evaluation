@@ -51,6 +51,22 @@ export async function POST(req: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Copy criteria from a previous period if requested
+  if (body.copy_criteria_from) {
+    const { data: sourceCriteria } = await supabase
+      .from('criteria')
+      .select('code, name, weight, input_type, auto_source, display_order')
+      .eq('period_id', body.copy_criteria_from)
+      .order('display_order')
+
+    if (sourceCriteria && sourceCriteria.length > 0) {
+      await supabase.from('criteria').insert(
+        sourceCriteria.map(c => ({ ...c, period_id: data.id }))
+      )
+    }
+  }
+
   return NextResponse.json(data, { status: 201 })
 }
 

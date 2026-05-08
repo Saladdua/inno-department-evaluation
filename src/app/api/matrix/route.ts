@@ -36,6 +36,18 @@ export async function POST(req: Request) {
   const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
   const supabase = createServiceClient()
 
+  // Department users cannot act on a locked matrix
+  if (!canManageAll && (action === 'add' || action === 'remove')) {
+    const { data: periodRow } = await supabase
+      .from('evaluation_periods')
+      .select('matrix_locked')
+      .eq('id', period_id)
+      .maybeSingle()
+    if (periodRow?.matrix_locked) {
+      return NextResponse.json({ error: 'Ma trận đang bị khóa' }, { status: 403 })
+    }
+  }
+
   if (action === 'clear') {
     if (!canManageAll) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
@@ -126,4 +138,27 @@ export async function POST(req: Request) {
 
   if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
   return NextResponse.json({ entries: data ?? [] })
+}
+
+// PATCH /api/matrix
+// Body: { period_id, locked: boolean } — toggle matrix lock (admin/leadership only)
+export async function PATCH(req: Request) {
+  const user = await getAuthUser(req)
+  if (!user || !['super_admin', 'leadership'].includes(user.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const { period_id, locked } = await req.json() as { period_id: string; locked: boolean }
+  if (!period_id || typeof locked !== 'boolean') {
+    return NextResponse.json({ error: 'Missing period_id or locked' }, { status: 400 })
+  }
+
+  const supabase = createServiceClient()
+  const { error } = await supabase
+    .from('evaluation_periods')
+    .update({ matrix_locked: locked })
+    .eq('id', period_id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true, locked })
 }

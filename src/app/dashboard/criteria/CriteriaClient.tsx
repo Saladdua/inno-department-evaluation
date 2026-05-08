@@ -665,9 +665,11 @@ function ImportCsvModal({
 function CreatePeriodModal({
   onClose,
   onCreated,
+  periods,
 }: {
   onClose: () => void
   onCreated: (p: Period) => void
+  periods: Period[]
 }) {
   const curYear = new Date().getFullYear()
   const [form, setForm] = useState({
@@ -677,6 +679,8 @@ function CreatePeriodModal({
     end_date: '',
     status: 'draft' as Period['status'],
   })
+  const [copyCriteria, setCopyCriteria] = useState(periods.length > 0)
+  const [copyFromId, setCopyFromId] = useState<string>(periods[0]?.id ?? '')
   const [isPending, startTransition] = useTransition()
   const [err, setErr] = useState('')
 
@@ -687,7 +691,10 @@ function CreatePeriodModal({
       const res = await fetch('/api/period', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          ...(copyCriteria && copyFromId ? { copy_criteria_from: copyFromId } : {}),
+        }),
       })
       const data = await res.json()
       if (!res.ok) { setErr(data.error ?? 'Lỗi tạo kỳ.'); return }
@@ -739,6 +746,31 @@ function CreatePeriodModal({
               <option value="open">Đang diễn ra (Open)</option>
             </select>
           </div>
+          {periods.length > 0 && (
+            <div className="mf-field">
+              <label className="mf-copy-row">
+                <input
+                  type="checkbox"
+                  className="mf-checkbox"
+                  checked={copyCriteria}
+                  onChange={e => setCopyCriteria(e.target.checked)}
+                />
+                <span className="mf-copy-label">Sao chép tiêu chí từ kỳ</span>
+                <select
+                  className="mf-input mf-copy-select"
+                  value={copyFromId}
+                  disabled={!copyCriteria}
+                  onChange={e => setCopyFromId(e.target.value)}
+                >
+                  {periods.map(p => (
+                    <option key={p.id} value={p.id}>
+                      Quý {p.quarter} · {p.year}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
           {err && <p className="mf-error">{err}</p>}
           <div className="mf-actions">
             <button type="button" className="mf-btn mf-btn--cancel" onClick={onClose}>Huỷ</button>
@@ -866,6 +898,7 @@ export default function CriteriaClient({
         <CreatePeriodModal
           onClose={() => setShowCreatePeriod(false)}
           onCreated={handlePeriodCreated}
+          periods={periods}
         />
       )}
 
@@ -1117,6 +1150,11 @@ export default function CriteriaClient({
         }
         .mf-input:focus { border-color: rgba(179,0,0,0.5); }
         .mf-input option { background: #1a1a1a; color: #fff; }
+        .mf-copy-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+        .mf-checkbox { width: 14px; height: 14px; accent-color: #B30000; cursor: pointer; flex-shrink: 0; }
+        .mf-copy-label { font-size: 12px; color: rgba(255,255,255,0.6); white-space: nowrap; }
+        .mf-copy-select { flex: 1; margin: 0; }
+        .mf-copy-select:disabled { opacity: 0.35; cursor: not-allowed; }
         .mf-error { font-size: 12px; color: #ff6666; font-style: italic; }
         .mf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
         .mf-btn {
@@ -1272,6 +1310,7 @@ export default function CriteriaClient({
         [data-theme="light"] .modal-close { border-color: rgba(0,0,0,0.08); color: rgba(0,0,0,0.3); }
         [data-theme="light"] .mf-label { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mf-input { background: #f7f7f8; border-color: rgba(0,0,0,0.1); color: #1a1a1a; }
+        [data-theme="light"] .mf-copy-label { color: rgba(0,0,0,0.6); }
         [data-theme="light"] .mf-btn--cancel { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .import-file-zone { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .import-file-hint { color: rgba(0,0,0,0.3); }

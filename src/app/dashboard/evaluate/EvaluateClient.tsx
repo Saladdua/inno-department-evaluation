@@ -82,6 +82,11 @@ export default function EvaluateClient({
 }: Props) {
   const canManageAll = role === 'super_admin' || role === 'leadership'
 
+  // Dept users and leaders only see manual criteria — auto criteria are filled by data processing
+  const displayCriteria = role === 'super_admin'
+    ? criteria
+    : criteria.filter(c => c.input_type !== 'auto')
+
   const evaluatorIds = useMemo(() => {
     return [...new Set(matrix.map(e => e.evaluator_id))]
   }, [matrix])
@@ -120,7 +125,7 @@ export default function EvaluateClient({
 
   function buildDraftFromEval(evaluatorId: string, targetId: string): Record<string, DraftScore> {
     const draft: Record<string, DraftScore> = {}
-    criteria.forEach(c => { draft[c.id] = { raw_score: '', note: '' } })
+    displayCriteria.forEach(c => { draft[c.id] = { raw_score: '', note: '' } })
     const ev = getEval(evaluatorId, targetId)
     if (ev) {
       const existingScores = scoresMap[ev.id] ?? []
@@ -141,40 +146,56 @@ export default function EvaluateClient({
   }
 
   function handleScoreChange(criteriaId: string, field: 'raw_score' | 'note', value: string) {
+    let v = value
+    if (field === 'raw_score' && value !== '') {
+      const num = Number(value)
+      if (!isNaN(num) && num > 100) v = '100'
+    }
     setDraftScores(prev => ({
       ...prev,
-      [criteriaId]: { ...prev[criteriaId], [field]: value },
+      [criteriaId]: { ...prev[criteriaId], [field]: v },
     }))
     if (saveStatus === 'saved') setSaveStatus('idle')
   }
 
+  function handleScoreBlur(criteriaId: string, value: string) {
+    if (value === '') return
+    const num = Number(value)
+    if (!isNaN(num) && num < 1) {
+      setDraftScores(prev => ({
+        ...prev,
+        [criteriaId]: { ...prev[criteriaId], raw_score: '1' },
+      }))
+    }
+  }
+
   const totalScore = useMemo(() => {
-    const totalWeight = criteria.reduce((sum, c) => sum + Number(c.weight), 0)
-    const weightedSum = criteria.reduce((sum, c) => {
+    const totalWeight = displayCriteria.reduce((sum, c) => sum + Number(c.weight), 0)
+    const weightedSum = displayCriteria.reduce((sum, c) => {
       const raw = parseFloat(draftScores[c.id]?.raw_score ?? '')
       return isNaN(raw) ? sum : sum + raw * Number(c.weight)
     }, 0)
     return totalWeight > 0 ? weightedSum / totalWeight : 0
-  }, [draftScores, criteria])
+  }, [draftScores, displayCriteria])
 
   const allScored = useMemo(() => {
-    return criteria.length > 0 && criteria.every(c => {
+    return displayCriteria.length > 0 && displayCriteria.every(c => {
       const v = draftScores[c.id]?.raw_score ?? ''
       if (v === '') return false
       const n = parseFloat(v)
-      return !isNaN(n) && n >= 0 && n <= 100
+      return !isNaN(n) && n >= 1 && n <= 100
     })
-  }, [draftScores, criteria])
+  }, [draftScores, displayCriteria])
 
   const hasAnyScore = useMemo(() => {
-    return criteria.some(c => {
+    return displayCriteria.some(c => {
       const v = draftScores[c.id]?.raw_score ?? ''
       return v !== '' && !isNaN(parseFloat(v))
     })
-  }, [draftScores, criteria])
+  }, [draftScores, displayCriteria])
 
   function buildPayload() {
-    return criteria.map(c => ({
+    return displayCriteria.map(c => ({
       criteria_id: c.id,
       raw_score: draftScores[c.id]?.raw_score ? parseFloat(draftScores[c.id].raw_score) : null,
       note: draftScores[c.id]?.note || null,
@@ -238,7 +259,7 @@ export default function EvaluateClient({
 
   const selectedEval = selectedTargetId ? getEval(selectedEvaluatorId, selectedTargetId) : null
   const isSubmitted = selectedEval?.status === 'submitted'
-  const canEdit = canManageAll || !isSubmitted
+  const canEdit = role === 'super_admin' || !isSubmitted
 
   // Empty states
   if (matrix.length === 0) {
@@ -249,11 +270,11 @@ export default function EvaluateClient({
       </div>
     )
   }
-  if (criteria.length === 0) {
+  if (displayCriteria.length === 0) {
     return (
       <div className="ev-empty">
         <Circle size={16} />
-        <span>Chưa có tiêu chí nào trong kỳ này. Vui lòng thêm tiêu chí trước.</span>
+        <span>Chưa có tiêu chí thủ công nào trong kỳ này.</span>
       </div>
     )
   }
@@ -390,12 +411,12 @@ export default function EvaluateClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {criteria.map(c => {
+                  {displayCriteria.map(c => {
                     const isAuto = c.input_type === 'auto'
                     const draft = draftScores[c.id] ?? { raw_score: '', note: '' }
                     const rawVal = parseFloat(draft.raw_score)
                     const weighted = !isNaN(rawVal) ? rawVal * Number(c.weight) : null
-                    const isInvalid = !isAuto && draft.raw_score !== '' && (isNaN(rawVal) || rawVal < 0 || rawVal > 100)
+                    const isInvalid = !isAuto && draft.raw_score !== '' && (isNaN(rawVal) || rawVal < 1 || rawVal > 100)
 
                     return (
                       <tr key={c.id} className={`ev-tr ${isAuto ? 'ev-tr--auto' : ''}`}>
@@ -408,11 +429,12 @@ export default function EvaluateClient({
                         <td className="ev-td td-score">
                           <input
                             type="number"
-                            min="0"
+                            min="1"
                             max="100"
                             step="1"
                             value={draft.raw_score}
                             onChange={e => handleScoreChange(c.id, 'raw_score', e.target.value)}
+                            onBlur={e => handleScoreBlur(c.id, e.target.value)}
                             disabled={isAuto || !canEdit || isPending}
                             className={`ev-score-input ${isInvalid ? 'ev-score-input--invalid' : ''} ${isAuto ? 'ev-score-input--auto' : ''}`}
                             placeholder="—"
@@ -460,7 +482,7 @@ export default function EvaluateClient({
                   className="ev-btn ev-btn--primary"
                   onClick={() => save(true)}
                   disabled={isPending || !allScored}
-                  title={!allScored ? 'Nhập đầy đủ điểm (0–10) trước khi nộp' : undefined}
+                  title={!allScored ? 'Nhập đầy đủ điểm (1–100) trước khi nộp' : undefined}
                 >
                   <Send size={13} /> Nộp đánh giá
                 </button>
