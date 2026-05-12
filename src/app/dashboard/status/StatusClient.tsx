@@ -1,8 +1,11 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, CheckCircle2, ChevronDown } from 'lucide-react'
+import { Lock, Archive } from 'lucide-react'
+import JSZip from 'jszip'
+import { generateHTML, generateXLS, triggerDownload } from '../results/ResultsClient'
+import type { DeptResult, CriterionInfo } from '../results/ResultsClient'
 
 export interface DeptStat {
   id: string
@@ -64,6 +67,149 @@ const PERIOD_STATUS_LABEL: Record<string, string> = {
   draft:  'Nháp',
 }
 
+interface ArchiveData {
+  period: Record<string, unknown>
+  criteria: Record<string, unknown>[]
+  departments: Record<string, unknown>[]
+  matrix: Record<string, unknown>[]
+  evaluations: Record<string, unknown>[]
+  evalScores: Record<string, unknown>[]
+  autoScores: Record<string, unknown>[]
+  results: DeptResult[]
+  totalSubmitted: number
+  maxScore: number
+}
+
+function escH(s: unknown) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function tableSection(id: string, title: string, headers: string[], rows: unknown[][]): string {
+  const ths = headers.map(h => `<th>${escH(h)}</th>`).join('')
+  const trs = rows.map(row =>
+    `<tr>${(row as unknown[]).map(cell => `<td>${escH(cell ?? '—')}</td>`).join('')}</tr>`
+  ).join('')
+  return `
+  <section id="${id}" class="section">
+    <h2>${title}</h2>
+    <div class="tbl-wrap">
+      <table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>
+    </div>
+  </section>`
+}
+
+function buildArchiveHTML(data: ArchiveData, pLabel: string): string {
+  const now = new Date().toLocaleString('vi-VN')
+  const p = data.period
+  const deptMap = new Map(data.departments.map(d => [d.id as string, ((d.code ?? d.name) as string)]))
+  const criteriaMap = new Map(data.criteria.map(c => [c.id as string, ((c.code ?? c.name) as string)]))
+
+  const sections = [
+    tableSection('ky-danh-gia', '1. Kỳ đánh giá',
+      ['ID', 'Quý', 'Năm', 'Trạng thái', 'Ngày bắt đầu', 'Ngày kết thúc'],
+      [[p.id, p.quarter, p.year, p.status, p.start_date ?? '', p.end_date ?? '']]
+    ),
+    tableSection('tieu-chi', '2. Tiêu chí',
+      ['STT', 'Mã', 'Tên tiêu chí', 'Hệ số', 'Loại', 'Nguồn tự động'],
+      data.criteria.map((c, i) => [i + 1, c.code ?? '', c.name, c.weight, c.input_type, c.auto_source ?? ''])
+    ),
+    tableSection('phong-ban', '3. Phòng ban',
+      ['STT', 'Mã', 'Tên phòng ban'],
+      data.departments.map((d, i) => [i + 1, d.code ?? '', d.name])
+    ),
+    tableSection('ma-tran', '4. Ma trận đánh giá',
+      ['Phòng đánh giá', 'Phòng được đánh giá'],
+      data.matrix.map(m => [deptMap.get(m.evaluator_id as string) ?? m.evaluator_id, deptMap.get(m.target_id as string) ?? m.target_id])
+    ),
+    tableSection('danh-gia', '5. Đánh giá',
+      ['Phòng đánh giá', 'Phòng được đánh giá', 'Trạng thái', 'Điểm tổng', 'Ngày nộp'],
+      data.evaluations.map(e => [
+        deptMap.get(e.evaluator_id as string) ?? e.evaluator_id,
+        deptMap.get(e.target_id as string) ?? e.target_id,
+        e.status, e.total_score ?? '', e.submitted_at ?? '',
+      ])
+    ),
+    tableSection('diem-danh-gia', '6. Điểm đánh giá',
+      ['Mã đánh giá', 'Tiêu chí', 'Điểm thô', 'Điểm quy đổi', 'Ghi chú'],
+      data.evalScores.map(s => [
+        s.evaluation_id, criteriaMap.get(s.criteria_id as string) ?? s.criteria_id,
+        s.raw_score ?? '', s.weighted_score ?? '', s.note ?? '',
+      ])
+    ),
+    tableSection('diem-tu-dong', '7. Điểm tự động',
+      ['Phòng ban', 'Tiêu chí', 'Nguồn', 'Điểm thô'],
+      data.autoScores.map(s => [
+        deptMap.get(s.dept_id as string) ?? s.dept_id,
+        criteriaMap.get(s.criteria_id as string) ?? s.criteria_id,
+        s.source ?? '', s.raw_score ?? '',
+      ])
+    ),
+    tableSection('ket-qua', '8. Kết quả xếp hạng',
+      ['Hạng', 'Mã phòng', 'Tên phòng ban', 'Điểm TB', 'Số đánh giá', 'Tổng đánh giá viên'],
+      data.results.map(r => [
+        r.avgScore != null ? r.rank : '—', r.code ?? '', r.name,
+        r.avgScore != null ? r.avgScore.toFixed(2) : '—', r.receivedCount, r.totalEvaluators,
+      ])
+    ),
+  ].join('')
+
+  return `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Lưu trữ Đánh giá — ${escH(pLabel)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;color:#1a1a1a;padding:24px 32px}
+h1{color:#B30000;font-size:22px;margin-bottom:4px}
+.meta{font-size:12px;color:#666;margin-bottom:20px}
+nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+nav a{padding:5px 14px;border-radius:20px;background:#B30000;color:#fff;text-decoration:none;font-size:12px;font-weight:600}
+nav a:hover{background:#990000}
+.section{background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+h2{font-size:14px;font-weight:700;color:#B30000;border-bottom:2px solid #f0e8e8;padding-bottom:8px;margin-bottom:14px;letter-spacing:0.03em}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:#1a1a1a;color:#fff;padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap}
+td{padding:7px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+tr:nth-child(even) td{background:#fafafa}
+tr:last-child td{border-bottom:none}
+@media print{nav{display:none}.section{box-shadow:none;border:1px solid #ddd}}
+</style>
+</head>
+<body>
+<h1>Lưu trữ Kỳ Đánh giá — ${escH(pLabel)}</h1>
+<p class="meta">Xuất lúc ${escH(now)} · ${escH(String(data.criteria.length))} tiêu chí · ${escH(String(data.departments.length))} phòng ban · ${escH(String(data.totalSubmitted))} đánh giá đã nộp</p>
+<nav>
+  <a href="#ky-danh-gia">Kỳ đánh giá</a>
+  <a href="#tieu-chi">Tiêu chí</a>
+  <a href="#phong-ban">Phòng ban</a>
+  <a href="#ma-tran">Ma trận</a>
+  <a href="#danh-gia">Đánh giá</a>
+  <a href="#diem-danh-gia">Điểm đánh giá</a>
+  <a href="#diem-tu-dong">Điểm tự động</a>
+  <a href="#ket-qua">Kết quả</a>
+</nav>
+${sections}
+</body>
+</html>`
+}
+
+function buildCriteriaCSV(data: ArchiveData): string {
+  const lines: string[] = ['DS TIÊU CHÍ & HỆ SỐ,Hình thức,HS QUÝ 1,HS QUÝ 2,HS QUÝ 3,HS QUÝ 4']
+  for (const c of data.criteria) {
+    const code = c.code as string | null
+    const name = c.name as string
+    const weight = Number(c.weight)
+    const inputType = c.input_type as string
+    const label = code ? `${code}: ${name}` : name
+    const hinhThuc = inputType === 'auto' ? 'Dữ liệu từ báo cáo hệ thống' : 'Thủ công'
+    const escapedLabel = label.includes(',') ? `"${label}"` : label
+    lines.push(`${escapedLabel},${hinhThuc},${weight},${weight},${weight},${weight}`)
+  }
+  return '﻿' + lines.join('\n')
+}
+
 export default function StatusClient({
   periodLabel,
   periodStatus,
@@ -76,7 +222,7 @@ export default function StatusClient({
 }: Props) {
   const router = useRouter()
   const [localStatus, setLocalStatus] = useState(periodStatus)
-  const [isPending, startTransition] = useTransition()
+  const [archiveStep, setArchiveStep] = useState<string | null>(null)
 
   const completionRate = overall.totalTasks > 0
     ? (overall.submittedCount / overall.totalTasks) * 100
@@ -89,23 +235,75 @@ export default function StatusClient({
 
   const isOverdue = localStatus === 'open' && endDate && new Date(endDate) < new Date()
 
-  function handlePeriodChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    router.push(`/dashboard/status?periodId=${e.target.value}`)
-  }
+  async function handleArchivePeriod() {
+    const confirmed = window.confirm(
+      `Kết thúc & Lưu trữ kỳ đánh giá "${periodLabel}"?\n\n` +
+      `Hệ thống sẽ:\n` +
+      `  1. Tạo file ZIP gồm: lưu trữ HTML, báo cáo HTML, Excel kết quả, CSV tiêu chí\n` +
+      `  2. Xóa toàn bộ dữ liệu và kỳ đánh giá khỏi hệ thống\n\n` +
+      `Thao tác này KHÔNG THỂ hoàn tác. Tiếp tục?`
+    )
+    if (!confirmed) return
 
-  function handleFinalize() {
-    if (!window.confirm(`Tổng kết Đánh giá ${periodLabel}?\n\nSau khi tổng kết, kỳ này sẽ bị khóa — không ai có thể nộp hoặc chỉnh sửa thêm. Kết quả sẽ được lưu vĩnh viễn.`)) return
-    startTransition(async () => {
-      const res = await fetch('/api/period', {
-        method: 'PUT',
+    try {
+      setArchiveStep('Đang lấy dữ liệu…')
+      const res = await fetch(`/api/close-period?periodId=${activePeriodId}`)
+      if (!res.ok) throw new Error('Không lấy được dữ liệu kỳ đánh giá')
+      const data: ArchiveData = await res.json()
+
+      const pLabel = `Quý ${data.period.quarter} · ${data.period.year}`
+      const slug = String(pLabel).replace(/[\s·]+/g, '_')
+
+      const criteriaForExport: CriterionInfo[] = data.criteria.map(c => ({
+        id: c.id as string,
+        code: (c.code as string | null) ?? null,
+        name: c.name as string,
+        weight: Number(c.weight),
+        input_type: c.input_type as 'manual' | 'auto',
+      }))
+
+      setArchiveStep('Đang tạo file…')
+
+      const archiveHtml = buildArchiveHTML(data, pLabel)
+      const resultsHtml = generateHTML(data.results, criteriaForExport, pLabel, data.maxScore, data.totalSubmitted, process.env.NEXT_PUBLIC_COMPANY_LOGO_URL)
+      const resultsXls  = generateXLS(data.results, criteriaForExport, pLabel, data.maxScore)
+      const criteriaCsv = buildCriteriaCSV(data)
+
+      setArchiveStep('Đang nén ZIP…')
+      const zip = new JSZip()
+      zip.file(`luu_tru_${slug}.html`, archiveHtml)
+      zip.file(`ket_qua_${slug}.html`, resultsHtml)
+      zip.file(`ket_qua_${slug}.xls`, resultsXls)
+      zip.file(`tieu_chi_${slug}.csv`, criteriaCsv)
+
+      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+      const zipUrl = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = zipUrl
+      a.download = `danh_gia_${slug}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(zipUrl)
+
+      await new Promise(r => setTimeout(r, 600))
+
+      setArchiveStep('Đang xóa dữ liệu…')
+      const delRes = await fetch('/api/close-period', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: activePeriodId, status: 'closed' }),
+        body: JSON.stringify({ periodId: activePeriodId }),
       })
-      if (res.ok) {
-        setLocalStatus('closed')
-        router.refresh()
-      }
-    })
+      if (!delRes.ok) throw new Error('Xóa dữ liệu thất bại — kiểm tra kết nối và thử lại')
+
+      setArchiveStep('Hoàn tất!')
+      await new Promise(r => setTimeout(r, 1200))
+      setArchiveStep(null)
+      router.refresh()
+    } catch (err) {
+      setArchiveStep(null)
+      alert(`Lỗi: ${err instanceof Error ? err.message : 'Không xác định'}`)
+    }
   }
 
   return (
@@ -114,21 +312,7 @@ export default function StatusClient({
       {/* ── Top bar ── */}
       <div className="st-topbar">
         <div className="st-topbar-left">
-          {/* Period selector */}
-          <div className="st-period-select-wrap">
-            <select
-              className="st-period-select"
-              value={activePeriodId}
-              onChange={handlePeriodChange}
-            >
-              {periods.map(p => (
-                <option key={p.id} value={p.id}>
-                  Quý {p.quarter} · {p.year}{p.status === 'closed' ? ' ✓' : p.status === 'draft' ? ' (nháp)' : ''}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={13} className="st-select-icon" />
-          </div>
+          <span className="st-period-label">{periodLabel}</span>
 
           <span className={`st-period-status ${localStatus === 'open' ? 'st-period-status--open' : localStatus === 'closed' ? 'st-period-status--closed' : ''}`}>
             {PERIOD_STATUS_LABEL[localStatus] ?? localStatus}
@@ -142,20 +326,20 @@ export default function StatusClient({
         <div className="st-topbar-right">
           <span className="st-rate">{completionRate.toFixed(0)}% hoàn thành</span>
 
-          {canManageAll && localStatus === 'open' && (
+          {canManageAll && localStatus !== 'closed' && (
             <button
               className="st-finalize-btn"
-              onClick={handleFinalize}
-              disabled={isPending}
+              onClick={handleArchivePeriod}
+              disabled={archiveStep !== null}
             >
-              <CheckCircle2 size={13} />
-              {isPending ? 'Đang tổng kết…' : 'Tổng kết Đánh giá'}
+              <Archive size={13} />
+              {archiveStep ?? 'Kết thúc & Lưu trữ'}
             </button>
           )}
 
           {localStatus === 'closed' && (
             <span className="st-finalized-badge">
-              <Lock size={11} /> Đã tổng kết
+              <Lock size={11} /> Đã lưu trữ
             </span>
           )}
         </div>
@@ -348,26 +532,10 @@ export default function StatusClient({
         .st-topbar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .st-topbar-right { display: flex; align-items: center; gap: 10px; }
 
-        /* Period selector */
-        .st-period-select-wrap { position: relative; display: flex; align-items: center; }
-        .st-period-select {
-          appearance: none; -webkit-appearance: none;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 8px;
-          padding: 5px 30px 5px 11px;
-          font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
-          text-transform: uppercase; color: rgba(255,255,255,0.6);
-          cursor: pointer; outline: none;
-          font-family: var(--font-sans), sans-serif;
-          transition: border-color 0.15s;
-        }
-        .st-period-select:hover { border-color: rgba(255,255,255,0.2); }
-        .st-period-select:focus { border-color: rgba(179,0,0,0.5); }
-        .st-period-select option { background: #1a1a1a; font-weight: normal; }
-        .st-select-icon {
-          position: absolute; right: 9px; pointer-events: none;
-          color: rgba(255,255,255,0.3);
+        /* Period label (replaces selector — 1 period at a time) */
+        .st-period-label {
+          font-size: 13px; font-weight: 700; letter-spacing: 0.06em;
+          text-transform: uppercase; color: rgba(255,255,255,0.7);
         }
 
         .st-period-status {
@@ -394,14 +562,14 @@ export default function StatusClient({
 
         .st-rate { font-size: 12px; color: rgba(179,0,0,0.8); font-weight: 600; letter-spacing: 0.04em; }
 
-        /* Finalize button */
+        /* Finalize / Archive button */
         .st-finalize-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 6px 14px; border-radius: 8px; border: none;
           background: #B30000; color: #fff;
           font-size: 12px; font-family: var(--font-sans), sans-serif;
           font-weight: 600; letter-spacing: 0.03em;
-          cursor: pointer;
+          cursor: pointer; white-space: nowrap;
           box-shadow: 0 3px 14px rgba(179,0,0,0.35);
           transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
         }
@@ -409,7 +577,12 @@ export default function StatusClient({
           background: #cc0000; transform: translateY(-1px);
           box-shadow: 0 5px 20px rgba(179,0,0,0.5);
         }
-        .st-finalize-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .st-finalize-btn:disabled {
+          opacity: 0.75; cursor: not-allowed;
+          background: rgba(179,0,0,0.6);
+          animation: archivePulse 1.4s ease-in-out infinite;
+        }
+        @keyframes archivePulse { 0%,100% { opacity: 0.75; } 50% { opacity: 0.5; } }
 
         /* Finalized badge */
         .st-finalized-badge {
@@ -571,11 +744,7 @@ export default function StatusClient({
         }
 
         /* ── Light mode ── */
-        [data-theme="light"] .st-period-select {
-          background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.65);
-        }
-        [data-theme="light"] .st-period-select option { background: #fff; }
-        [data-theme="light"] .st-select-icon { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .st-period-label { color: rgba(0,0,0,0.7); }
         [data-theme="light"] .st-period-status { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.4); }
         [data-theme="light"] .st-finalized-badge { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.35); }
         [data-theme="light"] .st-progress-track { background: rgba(0,0,0,0.07); }

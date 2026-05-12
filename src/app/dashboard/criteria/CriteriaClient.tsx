@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useTransition, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus } from 'lucide-react'
 
 /* ── Types ─────────────────────────────────────────── */
@@ -36,50 +36,46 @@ interface ParsedRow {
 }
 
 function parseCSV(text: string): string[][] {
-  const rows: string[][] = []
-  let row: string[] = []
-  let field = ''
-  let inQuotes = false
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    if (inQuotes) {
-      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++ }
-      else if (ch === '"') { inQuotes = false }
-      else { field += ch }
-    } else {
-      if (ch === '"') { inQuotes = true }
-      else if (ch === ',') { row.push(field); field = '' }
-      else if (ch === '\r') { /* skip */ }
-      else if (ch === '\n') {
-        row.push(field); field = ''
-        if (row.some(f => f.trim())) rows.push(row)
-        row = []
-      } else { field += ch }
+  return text.split(/\r?\n/).map(line => {
+    const cells: string[] = []
+    let cur = ''
+    let inQuote = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (ch === '"') {
+        if (inQuote && line[i + 1] === '"') { cur += '"'; i++ }
+        else inQuote = !inQuote
+      } else if (ch === ',' && !inQuote) {
+        cells.push(cur); cur = ''
+      } else {
+        cur += ch
+      }
     }
-  }
-  if (row.length > 0) { row.push(field); if (row.some(f => f.trim())) rows.push(row) }
-  return rows
+    cells.push(cur)
+    return cells
+  }).filter(row => row.some(c => c.trim()))
 }
 
 function parseCriteriaCSV(text: string, quarter: number): ParsedRow[] {
-  const all = parseCSV(text)
-  if (all.length < 2) return []
-  const [header, ...data] = all
-  const qCol = header.findIndex(h => h.trim() === `HS QUÝ ${quarter}`)
-  const q1Col = header.findIndex(h => h.trim() === 'HS QUÝ 1')
+  const rows = parseCSV(text)
+  if (rows.length < 2) return []
+  const [header, ...data] = rows
+  const hdr = header.map(h => h.trim())
+  const qCol  = hdr.findIndex(h => h === `HS QUÝ ${quarter}`)
+  const q1Col = hdr.findIndex(h => h === 'HS QUÝ 1')
   const weightCol = qCol >= 0 ? qCol : q1Col
   return data
     .filter(row => row[0]?.trim())
     .map(row => {
-      const tieuChi = row[0]?.trim() ?? ''
+      const tieuChi  = row[0]?.trim() ?? ''
       const hinhThuc = row[1]?.trim() ?? ''
-      const rawWeight = (weightCol >= 0 ? row[weightCol]?.trim() : '') || ''
-      const match = tieuChi.match(/^(TC\d+):\s*(.+)/)
-      const isAuto = hinhThuc.toLowerCase().includes('dữ liệu từ báo cáo')
+      const rawWeight = weightCol >= 0 ? row[weightCol]?.trim() ?? '' : ''
+      const match   = tieuChi.match(/^(TC\d+):\s*(.+)/)
+      const isAuto  = hinhThuc.toLowerCase().includes('dữ liệu từ báo cáo')
       return {
-        code: match ? match[1] : null,
-        name: match ? match[2].trim() : tieuChi,
-        weight: parseFloat(rawWeight) || 1,
+        code:       match ? match[1] : null,
+        name:       match ? match[2].trim() : tieuChi,
+        weight:     parseFloat(rawWeight) || 1,
         input_type: isAuto ? 'auto' as const : 'manual' as const,
         auto_source: isAuto ? 'google_sheets' : null,
       }
@@ -262,14 +258,14 @@ function CriteriaTable({
   }
 
   function handleExportTemplate() {
-    const csv = [
-      'DS TIÊU CHÍ & HỆ SỐ,,HS QUÝ 1,HS QUÝ 2,HS QUÝ 3,HS QUÝ 4',
+    const lines = [
+      'DS TIÊU CHÍ & HỆ SỐ,Hình thức,HS QUÝ 1,HS QUÝ 2,HS QUÝ 3,HS QUÝ 4',
       'TC01: Chất lượng và hiệu quả công việc,Thủ công,1.5,1.5,1.5,1.5',
       'TC02: Tiến độ hoàn thành đúng hạn,Thủ công,1.0,1.0,1.0,1.0',
       'TC03: Ý thức và thái độ làm việc,Thủ công,1.0,1.0,1.0,1.0',
       'TC04: Kết quả từ hệ thống báo cáo,Dữ liệu từ báo cáo hệ thống,2.0,2.0,2.0,2.0',
-    ].join('\r\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    ]
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -393,11 +389,13 @@ function CriteriaTable({
                             onChange={e => setDraftAutoSource(e.target.value)}
                           >
                             <option value="">Chọn nguồn…</option>
+                            <option value="bang_luong">Bảng lương</option>
+                            <option value="timesheets">Timesheets</option>
+                            <option value="dao_tao">Đào tạo</option>
+                            <option value="marketing">Marketing</option>
                             <option value="google_sheets">Google Sheets</option>
                             <option value="1office">1Office</option>
                             <option value="gitiho">Gitiho</option>
-                            <option value="timesheets">Timesheets</option>
-                            <option value="bang_luong">Bảng lương</option>
                           </select>
                         )}
                       </div>
@@ -440,10 +438,12 @@ function CriteriaTable({
 /* ── Add Criterion Modal ────────────────────────────── */
 function AddCriterionModal({
   periodId,
+  nextOrder,
   onClose,
   onAdded,
 }: {
   periodId: string
+  nextOrder: number
   onClose: () => void
   onAdded: (c: Criterion) => void
 }) {
@@ -459,12 +459,13 @@ function AddCriterionModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          period_id:    periodId,
-          code:         form.code || null,
-          name:         form.name,
-          weight:       parseFloat(form.weight) || 1,
-          input_type:   form.input_type,
-          auto_source:  form.input_type === 'auto' ? form.auto_source || null : null,
+          period_id:     periodId,
+          code:          form.code || null,
+          name:          form.name,
+          weight:        parseFloat(form.weight) || 1,
+          input_type:    form.input_type,
+          auto_source:   form.input_type === 'auto' ? form.auto_source || null : null,
+          display_order: nextOrder,
         }),
       })
       const data = await res.json()
@@ -511,11 +512,13 @@ function AddCriterionModal({
               <select className="mf-input" value={form.auto_source}
                 onChange={e => setForm({ ...form, auto_source: e.target.value })}>
                 <option value="">Chọn nguồn…</option>
+                <option value="bang_luong">Bảng lương</option>
+                <option value="timesheets">Timesheets</option>
+                <option value="dao_tao">Đào tạo</option>
+                <option value="marketing">Marketing</option>
                 <option value="google_sheets">Google Sheets</option>
                 <option value="1office">1Office</option>
                 <option value="gitiho">Gitiho</option>
-                <option value="timesheets">Timesheets</option>
-                <option value="bang_luong">Bảng lương</option>
               </select>
             </div>
           )}
@@ -553,9 +556,13 @@ function ImportCsvModal({
     if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
-      const text = ev.target?.result as string
-      setRows(parseCriteriaCSV(text, quarter))
-      setErr('')
+      try {
+        const text = ev.target?.result as string
+        setRows(parseCriteriaCSV(text, quarter))
+        setErr('')
+      } catch {
+        setErr('Không đọc được file CSV. Hãy kiểm tra định dạng.')
+      }
     }
     reader.readAsText(file, 'utf-8')
   }
@@ -652,7 +659,7 @@ function ImportCsvModal({
               disabled={!rows.length || isPending}
               onClick={handleImport}
             >
-              {isPending ? 'Đang import…' : `Import ${rows.length || ''} tiêu chí`}
+              {isPending ? 'Đang import…' : `Import ${rows.length || ''} tiêu chí từ CSV`}
             </button>
           </div>
         </div>
@@ -796,7 +803,8 @@ export default function CriteriaClient({
   initialCriteria: Criterion[]
   role: Role
 }) {
-  const router = useRouter()
+  const router      = useRouter()
+  const searchParams = useSearchParams()
   const [periods, setPeriods] = useState<Period[]>(initialPeriods)
   const [period, setPeriod] = useState<Period | null>(initialPeriod)
   const [criteria, setCriteria] = useState<Criterion[]>(initialCriteria)
@@ -805,6 +813,22 @@ export default function CriteriaClient({
   const [showCreatePeriod, setShowCreatePeriod] = useState(false)
 
   const canEdit = role === 'super_admin' || role === 'leadership'
+
+  // Restore last-selected period when navigating back without a periodId param
+  useEffect(() => {
+    if (searchParams.get('periodId')) return  // URL already has explicit period — respect it
+    const savedId = localStorage.getItem('criteria_period_id')
+    if (!savedId) return
+    const saved = periods.find(p => p.id === savedId)
+    if (!saved || saved.id === period?.id) return
+    setPeriod(saved)
+    setCriteria([])
+    fetch(`/api/criteria?periodId=${savedId}`)
+      .then(r => r.json())
+      .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
+      .catch(() => {})
+    window.history.replaceState({}, '', `/dashboard/criteria?periodId=${savedId}`)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handlePeriodSave(p: Period) {
     const method = p.id ? 'PUT' : 'POST'
@@ -827,13 +851,33 @@ export default function CriteriaClient({
     if (res.ok) setCriteria(prev => prev.map(c => c.id === id ? { ...c, ...fields, weight: data.weight } : c))
   }
 
+  function switchPeriod(selectedId: string, newPeriod: Period | null) {
+    localStorage.setItem('criteria_period_id', selectedId)
+    setPeriod(newPeriod)
+    setCriteria([])
+    // Update URL without going through the Next.js router — avoids server re-render
+    // races when router.refresh() is also in flight (e.g. after period creation).
+    window.history.replaceState({}, '', `/dashboard/criteria?periodId=${selectedId}`)
+    if (selectedId) {
+      fetch(`/api/criteria?periodId=${selectedId}`)
+        .then(r => r.json())
+        .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
+        .catch(() => {})
+    }
+  }
+
   function handlePeriodChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    router.push(`/dashboard/criteria?periodId=${e.target.value}`)
+    const selectedId = e.target.value
+    switchPeriod(selectedId, periods.find(p => p.id === selectedId) ?? null)
   }
 
   function handlePeriodCreated(p: Period) {
     setPeriods(prev => [p, ...prev])
-    router.push(`/dashboard/criteria?periodId=${p.id}`)
+    switchPeriod(p.id, p)
+    // Purge router cache so other pages (matrix, evaluate, status…) re-fetch
+    // and pick up the new period. No router.push here — switchPeriod already
+    // updated the URL via replaceState, avoiding any race with refresh().
+    router.refresh()
   }
 
   return (
@@ -880,6 +924,7 @@ export default function CriteriaClient({
       {showAdd && period && (
         <AddCriterionModal
           periodId={period.id}
+          nextOrder={criteria.length + 1}
           onClose={() => setShowAdd(false)}
           onAdded={c => setCriteria(prev => [...prev, c])}
         />

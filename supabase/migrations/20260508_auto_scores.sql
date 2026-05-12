@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS public.auto_scores (
   period_id   uuid        NOT NULL REFERENCES public.evaluation_periods(id) ON DELETE CASCADE,
   dept_id     uuid        NOT NULL REFERENCES public.departments(id)         ON DELETE CASCADE,
   criteria_id uuid        NOT NULL REFERENCES public.criteria(id)            ON DELETE CASCADE,
-  source      text        NOT NULL,
+  source      text        NOT NULL, 
   raw_score   numeric(5,2) NOT NULL DEFAULT 0,
   updated_at  timestamptz DEFAULT now(),
   UNIQUE (period_id, dept_id, criteria_id)

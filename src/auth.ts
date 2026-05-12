@@ -3,7 +3,7 @@ import Credentials from 'next-auth/providers/credentials'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { User } from 'next-auth'
 
-export type UserRole = 'super_admin' | 'leadership' | 'department'
+export type UserRole = 'super_admin' | 'leadership' | 'department' | 'marketing'
 
 declare module 'next-auth' {
   interface Session {

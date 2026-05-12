@@ -71,7 +71,7 @@ const RANK_COLOR: Record<number, string> = {
 };
 
 /* ── HTML Report Generator ───────────────────────────── */
-function generateHTML(
+export function generateHTML(
   results: DeptResult[],
   criteria: CriterionInfo[],
   periodLabel: string,
@@ -435,7 +435,7 @@ footer::before{
 }
 
 /* ── XLS (SpreadsheetML) Generator ──────────────────── */
-function generateXLS(
+export function generateXLS(
   results: DeptResult[],
   criteria: CriterionInfo[],
   periodLabel: string,
@@ -521,7 +521,7 @@ function generateXLS(
 </Workbook>`;
 }
 
-function triggerDownload(content: string, filename: string, mime: string) {
+export function triggerDownload(content: string, filename: string, mime: string) {
   const blob = new Blob(["﻿" + content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -823,80 +823,92 @@ export default function ResultsClient({
                     <tr className="rs-detail-row">
                       <td colSpan={7} className="rs-detail-cell">
                         <div className="rs-detail-inner">
-                          {r.receivedCount === 0 ? (
-                            <span className="rs-detail-empty">
-                              Chưa có đánh giá nào được nộp.
-                            </span>
-                          ) : (
-                            <table className="rs-detail-table">
-                              <thead>
-                                <tr>
-                                  <th className="rs-dth dth-code">Mã</th>
-                                  <th className="rs-dth dth-name">Tiêu chí</th>
-                                  <th className="rs-dth dth-weight">Hệ số</th>
-                                  <th className="rs-dth dth-raw">TB điểm</th>
-                                  <th className="rs-dth dth-bar">Phân bố</th>
-                                  <th className="rs-dth dth-weighted">
-                                    TB quy đổi
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {criteria.map((c) => {
-                                  const avg = r.criteriaAvg.find(
-                                    (a) => a.criteriaId === c.id,
-                                  );
-                                  const rawPct =
-                                    avg?.avgRaw != null
-                                      ? (avg.avgRaw / 10) * 100
-                                      : 0;
-                                  return (
-                                    <tr key={c.id} className="rs-dtr">
-                                      <td className="rs-dtd dtd-code">
-                                        {c.code ?? "—"}
-                                      </td>
-                                      <td className="rs-dtd dtd-name">
-                                        {c.name}
-                                      </td>
-                                      <td className="rs-dtd dtd-weight">
-                                        ×{c.weight}
-                                      </td>
-                                      <td className="rs-dtd dtd-raw">
-                                        {fmt(avg?.avgRaw ?? null)}
-                                      </td>
-                                      <td className="rs-dtd dtd-bar">
-                                        <div className="rs-dbar-track">
-                                          <div
-                                            className="rs-dbar-fill"
-                                            style={{ width: `${rawPct}%` }}
-                                          />
-                                        </div>
-                                      </td>
-                                      <td className="rs-dtd dtd-weighted">
-                                        <span className="rs-weighted-val">
-                                          {fmt(avg?.avgWeighted ?? null)}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                              <tfoot>
-                                <tr className="rs-dfoot">
-                                  <td colSpan={5} className="rs-dfoot-label">
-                                    Tổng
-                                  </td>
-                                  <td className="rs-dfoot-val">
-                                    {fmt(r.avgScore)}
-                                    <span className="rs-dfoot-max">
-                                      {" "}
-                                      / {maxScore}
-                                    </span>
-                                  </td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                          )}
+                          {(() => {
+                            const hasAnyScore = r.criteriaAvg.some(
+                              (a) => a.avgRaw != null || a.avgWeighted != null,
+                            );
+                            if (!hasAnyScore) {
+                              return (
+                                <span className="rs-detail-empty">
+                                  Chưa có đánh giá nào được nộp.
+                                </span>
+                              );
+                            }
+                            return (
+                              <table className="rs-detail-table">
+                                <thead>
+                                  <tr>
+                                    <th className="rs-dth dth-code">Mã</th>
+                                    <th className="rs-dth dth-name">Tiêu chí</th>
+                                    <th className="rs-dth dth-weight">Hệ số</th>
+                                    <th className="rs-dth dth-raw">TB điểm</th>
+                                    <th className="rs-dth dth-bar">Phân bố</th>
+                                    <th className="rs-dth dth-weighted">
+                                      TB quy đổi
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {criteria.map((c) => {
+                                    const avg = r.criteriaAvg.find(
+                                      (a) => a.criteriaId === c.id,
+                                    );
+                                    const rawMax = c.input_type === 'auto' ? 100 : 10;
+                                    const rawPct =
+                                      avg?.avgRaw != null
+                                        ? Math.min(100, (avg.avgRaw / rawMax) * 100)
+                                        : 0;
+                                    return (
+                                      <tr key={c.id} className="rs-dtr">
+                                        <td className="rs-dtd dtd-code">
+                                          {c.code ?? "—"}
+                                        </td>
+                                        <td className="rs-dtd dtd-name">
+                                          {c.name}
+                                          {c.input_type === 'auto' && (
+                                            <span className="rs-auto-badge">auto</span>
+                                          )}
+                                        </td>
+                                        <td className="rs-dtd dtd-weight">
+                                          ×{c.weight}
+                                        </td>
+                                        <td className="rs-dtd dtd-raw">
+                                          {fmt(avg?.avgRaw ?? null)}
+                                        </td>
+                                        <td className="rs-dtd dtd-bar">
+                                          <div className="rs-dbar-track">
+                                            <div
+                                              className={`rs-dbar-fill${c.input_type === 'auto' ? ' rs-dbar-fill--auto' : ''}`}
+                                              style={{ width: `${rawPct}%` }}
+                                            />
+                                          </div>
+                                        </td>
+                                        <td className="rs-dtd dtd-weighted">
+                                          <span className="rs-weighted-val">
+                                            {fmt(avg?.avgWeighted ?? null)}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="rs-dfoot">
+                                    <td colSpan={5} className="rs-dfoot-label">
+                                      Tổng
+                                    </td>
+                                    <td className="rs-dfoot-val">
+                                      {fmt(r.avgScore)}
+                                      <span className="rs-dfoot-max">
+                                        {" "}
+                                        / {maxScore}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            );
+                          })()}
                         </div>
                       </td>
                     </tr>
@@ -1064,6 +1076,13 @@ const rsStyles = `
   .rs-weighted-val { color: rgba(179,0,0,0.8); font-weight: 600; }
   .rs-dbar-track { height: 3px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
   .rs-dbar-fill { height: 100%; background: rgba(179,0,0,0.5); border-radius: 2px; transition: width 0.4s ease; }
+  .rs-dbar-fill--auto { background: rgba(139,92,246,0.6); }
+  .rs-auto-badge {
+    display: inline-block; margin-left: 6px; font-size: 8px; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; padding: 1px 5px; border-radius: 3px; vertical-align: middle;
+    background: rgba(139,92,246,0.15); color: rgba(167,139,250,0.9);
+    border: 1px solid rgba(139,92,246,0.25);
+  }
   .rs-dfoot { border-top: 1px solid rgba(255,255,255,0.06); }
   .rs-dfoot-label { padding: 8px 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.25); text-align: right; }
   .rs-dfoot-val { padding: 8px 10px; text-align: right; font-size: 15px; font-weight: 300; color: #B30000; }

@@ -18,29 +18,32 @@ import {
   Sun,
   Moon,
   Flag,
+  Megaphone,
 } from 'lucide-react'
 import { useTheme } from '@/components/providers'
 import NotificationBell from '@/components/NotificationBell'
 
 const NAV = [
-  { href: '/dashboard/criteria', label: 'Tiêu chí và hệ số',  icon: SlidersHorizontal, roles: ['super_admin','leadership','department'] },
-  { href: '/dashboard/matrix',   label: 'Ma trận đánh giá',   icon: LayoutGrid,         roles: ['super_admin','leadership','department'] },
+  { href: '/dashboard/criteria', label: 'Tiêu chí và hệ số',  icon: SlidersHorizontal, roles: ['super_admin','leadership','department','marketing'] },
+  { href: '/dashboard/matrix',   label: 'Ma trận đánh giá',   icon: LayoutGrid,         roles: ['super_admin','leadership','department','marketing'] },
   { href: '/dashboard/evaluate', label: 'Đánh giá',           icon: ClipboardPen,       roles: ['super_admin','leadership','department'] },
-  { href: '/dashboard/status',   label: 'Tình trạng',         icon: Activity,           roles: ['super_admin','leadership','department'] },
-  { href: '/dashboard/results',  label: 'Kết quả',            icon: BarChart2,          roles: ['super_admin','leadership','department'] },
-  { href: '/dashboard/results/detail', label: 'Kết quả chi tiết', icon: FileBarChart,   roles: ['super_admin','leadership'] },
-  { href: '/dashboard/departments',      label: 'Phòng ban',          icon: Building2,      roles: ['super_admin', 'leadership'] },
-  { href: '/dashboard/users',            label: 'Tài khoản',          icon: Users,          roles: ['super_admin', 'leadership'] },
-  { href: '/dashboard/reports',          label: 'Báo cáo',            icon: Flag,           roles: ['super_admin', 'leadership'] },
-  { href: '/dashboard/data-processing', label: 'Xử lí Dữ liệu',     icon: DatabaseZap,    roles: ['super_admin'] },
+  { href: '/dashboard/status',   label: 'Tình trạng',         icon: Activity,           roles: ['super_admin','leadership','department','marketing'] },
+  { href: '/dashboard/results',  label: 'Kết quả',            icon: BarChart2,          roles: ['super_admin','leadership','department','marketing'] },
+  { href: '/dashboard/results/detail', label: 'Kết quả chi tiết', icon: FileBarChart,   roles: ['super_admin','leadership','marketing'] },
+  { href: '/dashboard/marketing',      label: 'Điểm MKT INNO',     icon: Megaphone,      roles: ['super_admin','marketing'] },
+  { href: '/dashboard/departments',    label: 'Phòng ban',          icon: Building2,      roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/users',          label: 'Tài khoản',          icon: Users,          roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/reports',        label: 'Báo cáo',            icon: Flag,           roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/data-processing', label: 'Xử lí Dữ liệu',   icon: DatabaseZap,    roles: ['super_admin'] },
 ] as const
 
-type Role = 'super_admin' | 'leadership' | 'department'
+type Role = 'super_admin' | 'leadership' | 'department' | 'marketing'
 
 const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Quản trị viên',
   leadership:  'Ban lãnh đạo',
   department:  'Phòng ban',
+  marketing:   'Marketing',
 }
 
 const LOGO_URL = process.env.NEXT_PUBLIC_COMPANY_LOGO_URL ?? ''
@@ -146,10 +149,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </div>
           <div className="topbar-right">
-            <div className="period-badge">
-              <span className="period-dot" />
-              <span>Quý 2 · 2025</span>
-            </div>
             <NotificationBell deptId={session?.user?.departmentId ?? null} />
             <button
               className="theme-toggle"

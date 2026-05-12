@@ -14,7 +14,7 @@ export interface AppUser {
   id: string
   name: string
   email: string
-  role: 'super_admin' | 'leadership' | 'department'
+  role: 'super_admin' | 'leadership' | 'department' | 'marketing'
   department_id: string | null
   departments: { id: string; name: string; code: string | null } | null
 }
@@ -23,6 +23,7 @@ const ROLE_LABEL: Record<AppUser['role'], string> = {
   super_admin: 'Quản trị viên',
   leadership:  'Ban lãnh đạo',
   department:  'Phòng ban',
+  marketing:   'Marketing',
 }
 
 type ModalMode = 'add' | 'edit'
@@ -96,7 +97,7 @@ function UserModal({
     })
   }
 
-  const needsDept = form.role !== 'super_admin'
+  const needsDept = form.role !== 'super_admin' && form.role !== 'marketing'
 
   return (
     <div className="um-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -161,6 +162,7 @@ function UserModal({
               <select className="um-input" value={form.role} onChange={e => set('role', e.target.value as AppUser['role'])}>
                 <option value="department">Phòng ban</option>
                 <option value="leadership">Ban lãnh đạo</option>
+                <option value="marketing">Marketing</option>
                 <option value="super_admin">Quản trị viên</option>
               </select>
             </div>
@@ -231,6 +233,7 @@ export default function UsersClient({
     super_admin: users.filter(u => u.role === 'super_admin').length,
     leadership:  users.filter(u => u.role === 'leadership').length,
     department:  users.filter(u => u.role === 'department').length,
+    marketing:   users.filter(u => u.role === 'marketing').length,
   }), [users])
 
   function handleSaved(saved: AppUser) {
@@ -304,6 +307,13 @@ export default function UsersClient({
         >
           <span className="ua-card-val">{counts.department}</span>
           <span className="ua-card-lbl">Phòng ban</span>
+        </button>
+        <button
+          className={`ua-card ua-card--violet ${roleFilter === 'marketing' ? 'ua-card--active' : ''}`}
+          onClick={() => setRoleFilter('marketing')}
+        >
+          <span className="ua-card-val">{counts.marketing}</span>
+          <span className="ua-card-lbl">Marketing</span>
         </button>
       </div>
 
@@ -435,10 +445,12 @@ export default function UsersClient({
         .ua-card--red.ua-card--active { background: rgba(179,0,0,0.06); border-color: rgba(179,0,0,0.25); }
         .ua-card--amber.ua-card--active { background: rgba(251,191,36,0.06); border-color: rgba(251,191,36,0.25); }
         .ua-card--blue.ua-card--active { background: rgba(99,179,237,0.06); border-color: rgba(99,179,237,0.25); }
+        .ua-card--violet.ua-card--active { background: rgba(124,58,237,0.06); border-color: rgba(124,58,237,0.25); }
         .ua-card-val { font-size: 28px; font-weight: 300; letter-spacing: -0.03em; color: rgba(255,255,255,0.85); line-height: 1; }
-        .ua-card--red   .ua-card-val { color: #f87171; }
-        .ua-card--amber .ua-card-val { color: #fbbf24; }
-        .ua-card--blue  .ua-card-val { color: #63b3ed; }
+        .ua-card--red    .ua-card-val { color: #f87171; }
+        .ua-card--amber  .ua-card-val { color: #fbbf24; }
+        .ua-card--blue   .ua-card-val { color: #63b3ed; }
+        .ua-card--violet .ua-card-val { color: #a78bfa; }
         .ua-card-lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: rgba(255,255,255,0.25); }
 
         /* ── Toolbar ── */
@@ -514,6 +526,7 @@ export default function UsersClient({
         .ua-avatar[data-role="super_admin"] { background: linear-gradient(135deg, #B30000, #7a0000); box-shadow: 0 2px 8px rgba(179,0,0,0.35); }
         .ua-avatar[data-role="leadership"]  { background: linear-gradient(135deg, #b88a00, #7a5c00); box-shadow: 0 2px 8px rgba(184,138,0,0.3); }
         .ua-avatar[data-role="department"]  { background: linear-gradient(135deg, #1e6fa8, #124b74); box-shadow: 0 2px 8px rgba(30,111,168,0.3); }
+        .ua-avatar[data-role="marketing"]   { background: linear-gradient(135deg, #7c3aed, #4c1d95); box-shadow: 0 2px 8px rgba(124,58,237,0.3); }
         .ua-user-info { display: flex; flex-direction: column; min-width: 0; }
         .ua-user-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .ua-user-email { font-size: 11px; color: rgba(255,255,255,0.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
@@ -526,6 +539,7 @@ export default function UsersClient({
         .ua-role-badge--super_admin { background: rgba(179,0,0,0.12); color: #f87171; border-color: rgba(179,0,0,0.25); }
         .ua-role-badge--leadership  { background: rgba(251,191,36,0.10); color: #fbbf24; border-color: rgba(251,191,36,0.22); }
         .ua-role-badge--department  { background: rgba(99,179,237,0.08); color: #63b3ed; border-color: rgba(99,179,237,0.18); }
+        .ua-role-badge--marketing   { background: rgba(124,58,237,0.10); color: #a78bfa; border-color: rgba(124,58,237,0.22); }
 
         .ua-dept { font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.45); letter-spacing: 0.04em; }
         .ua-dept-none { color: rgba(255,255,255,0.15); font-size: 12px; }
@@ -635,10 +649,12 @@ export default function UsersClient({
         [data-theme="light"] .ua-card--red.ua-card--active { background: rgba(179,0,0,0.04); border-color: rgba(179,0,0,0.2); }
         [data-theme="light"] .ua-card--amber.ua-card--active { background: rgba(251,191,36,0.06); border-color: rgba(251,191,36,0.2); }
         [data-theme="light"] .ua-card--blue.ua-card--active { background: rgba(99,179,237,0.06); border-color: rgba(99,179,237,0.2); }
+        [data-theme="light"] .ua-card--violet.ua-card--active { background: rgba(124,58,237,0.04); border-color: rgba(124,58,237,0.2); }
         [data-theme="light"] .ua-card-val { color: rgba(0,0,0,0.8); }
-        [data-theme="light"] .ua-card--red   .ua-card-val { color: #b30000; }
-        [data-theme="light"] .ua-card--amber .ua-card-val { color: #b45309; }
-        [data-theme="light"] .ua-card--blue  .ua-card-val { color: #1d6fa8; }
+        [data-theme="light"] .ua-card--red    .ua-card-val { color: #b30000; }
+        [data-theme="light"] .ua-card--amber  .ua-card-val { color: #b45309; }
+        [data-theme="light"] .ua-card--blue   .ua-card-val { color: #1d6fa8; }
+        [data-theme="light"] .ua-card--violet .ua-card-val { color: #6d28d9; }
         [data-theme="light"] .ua-card-lbl { color: rgba(0,0,0,0.35); }
         [data-theme="light"] .ua-search { background: #fff; border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.75); }
         [data-theme="light"] .ua-search::placeholder { color: rgba(0,0,0,0.3); }
@@ -657,6 +673,7 @@ export default function UsersClient({
         [data-theme="light"] .ua-role-badge--super_admin { background: rgba(179,0,0,0.08); color: #b30000; border-color: rgba(179,0,0,0.18); }
         [data-theme="light"] .ua-role-badge--leadership  { background: rgba(180,83,9,0.08); color: #b45309; border-color: rgba(180,83,9,0.18); }
         [data-theme="light"] .ua-role-badge--department  { background: rgba(29,111,168,0.08); color: #1d6fa8; border-color: rgba(29,111,168,0.18); }
+        [data-theme="light"] .ua-role-badge--marketing   { background: rgba(109,40,217,0.07); color: #6d28d9; border-color: rgba(109,40,217,0.18); }
         [data-theme="light"] .ua-dept { color: rgba(0,0,0,0.5); }
         [data-theme="light"] .ua-dept-none { color: rgba(0,0,0,0.2); }
         [data-theme="light"] .ua-action-btn--edit { color: rgba(0,0,0,0.3); border-color: rgba(0,0,0,0.08); }
