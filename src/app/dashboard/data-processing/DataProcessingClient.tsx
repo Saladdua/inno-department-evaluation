@@ -559,9 +559,9 @@ function processFile(rows: Row[], departments: Department[]): FileResult {
   return result
 }
 
-/* ─── BangLuongBox ─────────────────────────────────────────── */
+/* ─── NoiQuyBox ─────────────────────────────────────────── */
 
-function BangLuongBox({
+function NoiQuyBox({
   departments,
   state,
   onFilesChange,
@@ -580,7 +580,7 @@ function BangLuongBox({
     <div className="dp-box">
       <div className="dp-box-header">
         <FileSpreadsheet size={16} className="dp-box-icon" />
-        <span className="dp-box-title">Bảng lương</span>
+        <span className="dp-box-title">Tuân thủ nội quy</span>
         {state.fileNames.length > 0 && (
           <span className="dp-file-count">{state.fileNames.length} file</span>
         )}
@@ -615,7 +615,7 @@ function BangLuongBox({
       </div>
 
       {state.fileNames.length === 0 && (
-        <p className="dp-ts-hint">Upload <strong>3 file Bang-luong-cong-ty-moi</strong></p>
+        <p className="dp-ts-hint">Upload <strong>3 file Noi-quy-cong-ty-moi</strong></p>
       )}
 
       {state.fileNames.length > 0 && (
@@ -1108,7 +1108,7 @@ export default function DataProcessingClient({
     fileNames: [], files: [], output: '', processing: false,
     result: null, applyStatus: 'idle', applyMessage: '',
   })
-  const [bangLuong, setBangLuong] = useState<BoxState>(emptyState)
+  const [noiQuy, setNoiQuy] = useState<BoxState>(emptyState)
   const [timesheets, setTimesheets] = useState<BoxState>(emptyState)
   const [daoTao, setDaoTao] = useState<BoxState>(emptyState)
   const [mktImport, setMktImport] = useState<BoxState>(emptyState)
@@ -1139,12 +1139,12 @@ export default function DataProcessingClient({
     })
   }
 
-  const handleBangLuongProcess = () => {
-    setBangLuong(prev => ({ ...prev, processing: true, output: '', result: null, applyStatus: 'idle', applyMessage: '' }))
+  const handleNoiQuyProcess = () => {
+    setNoiQuy(prev => ({ ...prev, processing: true, output: '', result: null, applyStatus: 'idle', applyMessage: '' }))
     startTransition(async () => {
       try {
         const fileResults: FileResult[] = await Promise.all(
-          bangLuong.files.map(async f => {
+          noiQuy.files.map(async f => {
             const rows = await readWorkbook(f)
             return processFile(rows, departments)
           }),
@@ -1160,14 +1160,14 @@ export default function DataProcessingClient({
           rounded[code] = Math.round(B)
         }
 
-        setBangLuong(prev => ({
+        setNoiQuy(prev => ({
           ...prev,
           processing: false,
           result: rounded,
           output: JSON.stringify(rounded, null, 2),
         }))
       } catch (err) {
-        setBangLuong(prev => ({
+        setNoiQuy(prev => ({
           ...prev,
           processing: false,
           output: `Lỗi: ${err instanceof Error ? err.message : String(err)}`,
@@ -1177,7 +1177,7 @@ export default function DataProcessingClient({
   }
 
   const handleApply = (
-    source: 'bang_luong' | 'timesheets' | 'marketing' | 'dao_tao',
+    source: 'noi_quy' | 'timesheets' | 'marketing' | 'dao_tao',
     result: Record<string, number>,
     setter: React.Dispatch<React.SetStateAction<BoxState>>,
   ) => {
@@ -1392,12 +1392,12 @@ export default function DataProcessingClient({
       </div>
 
       <div className="dp-grid">
-        <BangLuongBox
+        <NoiQuyBox
           departments={departments}
-          state={bangLuong}
-          onFilesChange={p => handleFilesChange(setBangLuong, p)}
-          onProcess={handleBangLuongProcess}
-          onApply={() => bangLuong.result && handleApply('bang_luong', bangLuong.result, setBangLuong)}
+          state={noiQuy}
+          onFilesChange={p => handleFilesChange(setNoiQuy, p)}
+          onProcess={handleNoiQuyProcess}
+          onApply={() => noiQuy.result && handleApply('noi_quy', noiQuy.result, setNoiQuy)}
         />
         <TimesheetsBox
           state={timesheets}

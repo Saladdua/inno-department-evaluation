@@ -133,8 +133,9 @@ export async function GET(req: Request) {
 
 // POST /api/close-period
 // Body: { periodId }
-// Deletes all evaluation activity for the period.
-// Keeps: evaluation_periods, criteria, users, departments.
+// Marks the period as closed and removes operational data.
+// Keeps: evaluation_periods (as closed), evaluations, evaluation_scores,
+//        auto_scores, criteria — so Results page can show historical data.
 export async function POST(req: Request) {
   const user = await getAuthUser(req)
   if (!user || !['super_admin', 'leadership'].includes(user.role)) {
@@ -147,31 +148,17 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient()
 
-  // Collect evaluation IDs so we can delete their scores
-  const { data: evals } = await supabase.from('evaluations').select('id').eq('period_id', periodId)
-  const evalIds = (evals ?? []).map((e: { id: string }) => e.id)
-
-  // Delete in FK-safe order:
-  // 1. notification_reads (references notifications)
+  // Remove operational/notification data (not needed for results)
   await supabase.from('notification_reads').delete().not('id', 'is', null)
-  // 2. evaluation_reports (references notifications)
   await supabase.from('evaluation_reports').delete().not('id', 'is', null)
-  // 3. notifications
   await supabase.from('notifications').delete().not('id', 'is', null)
-  // 4. evaluation_scores (references evaluations)
-  if (evalIds.length > 0) {
-    await supabase.from('evaluation_scores').delete().in('evaluation_id', evalIds)
-  }
-  // 5. evaluations
-  await supabase.from('evaluations').delete().eq('period_id', periodId)
-  // 6. auto_scores
-  await supabase.from('auto_scores').delete().eq('period_id', periodId)
-  // 7. evaluation_matrix
   await supabase.from('evaluation_matrix').delete().eq('period_id', periodId)
-  // 8. criteria (references evaluation_periods)
-  await supabase.from('criteria').delete().eq('period_id', periodId)
-  // 9. evaluation_periods record itself
-  await supabase.from('evaluation_periods').delete().eq('id', periodId)
+
+  // Mark the period as closed — keeps all result data intact
+  await supabase
+    .from('evaluation_periods')
+    .update({ status: 'closed' })
+    .eq('id', periodId)
 
   return NextResponse.json({ ok: true })
 }

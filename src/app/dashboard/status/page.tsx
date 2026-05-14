@@ -1,15 +1,11 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { createServiceClient } from '@/lib/supabase/server'
 import StatusClient from './StatusClient'
 import type { DeptStat, OverallStats } from './StatusClient'
 
-export default async function StatusPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ periodId?: string }>
-}) {
-  const { periodId } = await searchParams
+export default async function StatusPage() {
   const session = await auth()
   if (!session) redirect('/login')
 
@@ -27,9 +23,9 @@ export default async function StatusPage({
 
   const periods = periodsData ?? []
 
-  const period = periodId
-    ? (periods.find(p => p.id === periodId) ?? periods[0])
-    : periods[0]
+  const cookieStore = await cookies()
+  const selectedId = cookieStore.get('selected_period_id')?.value
+  const period = selectedId ? (periods.find(p => p.id === selectedId) ?? periods[0]) : periods[0]
 
   if (!period) {
     return (

@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getSelectedPeriod } from '@/lib/selected-period'
 import MatrixClient, { type Department, type MatrixEntry } from './MatrixClient'
 
 export default async function MatrixPage() {
@@ -10,13 +11,14 @@ export default async function MatrixPage() {
 
   const supabase = createServiceClient()
 
-  const { data: period } = await supabase
-    .from('evaluation_periods')
-    .select('id, quarter, year, matrix_locked')
-    .order('year', { ascending: false })
-    .order('quarter', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const basePeriod = await getSelectedPeriod()
+  const { data: period } = basePeriod
+    ? await supabase
+        .from('evaluation_periods')
+        .select('id, quarter, year, matrix_locked')
+        .eq('id', basePeriod.id)
+        .maybeSingle()
+    : { data: null }
 
   const { data: depts } = await supabase
     .from('departments')

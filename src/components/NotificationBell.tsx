@@ -70,7 +70,7 @@ function notifHref(n: Notification): string | null {
   return null
 }
 
-export default function NotificationBell({ deptId }: { deptId: string | null }) {
+export default function NotificationBell({ deptId, role }: { deptId: string | null; role?: string }) {
   const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
@@ -82,7 +82,12 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
   const bellRef = useRef<HTMLButtonElement>(null)
   const popupRef = useRef<HTMLDivElement>(null)
 
-  const unreadCount = notifications.filter(n => !n.is_read).length
+  const isAdmin = role === 'super_admin' || role === 'leadership'
+  const visibleNotifications = isAdmin
+    ? notifications
+    : notifications.filter(n => n.type !== 'report_submitted' && n.type !== 'report_resolved')
+
+  const unreadCount = visibleNotifications.filter(n => !n.is_read).length
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -189,9 +194,9 @@ export default function NotificationBell({ deptId }: { deptId: string | null }) 
       </div>
 
       <div className="nb-list">
-        {notifications.length === 0 ? (
+        {visibleNotifications.length === 0 ? (
           <div className="nb-empty">Không có thông báo</div>
-        ) : notifications.map(n => {
+        ) : visibleNotifications.map(n => {
           const href = notifHref(n)
           return (
             <div

@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getSelectedPeriod } from '@/lib/selected-period'
 import DetailClient from './DetailClient'
 import type { CriterionInfo, EvaluatorEntry, TargetData } from './DetailClient'
 
@@ -13,13 +14,7 @@ export default async function ResultsDetailPage() {
 
   const supabase = createServiceClient()
 
-  const { data: period } = await supabase
-    .from('evaluation_periods')
-    .select('id, quarter, year')
-    .order('year', { ascending: false })
-    .order('quarter', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const period = await getSelectedPeriod()
 
   if (!period) {
     return (

@@ -3,7 +3,7 @@ import { getAuthUser } from '@/lib/auth-helpers'
 import { createServiceClient } from '@/lib/supabase/server'
 
 // POST /api/data-sync
-// Body: { periodId, source: 'bang_luong'|'timesheets', scores: [{deptId, score}] }
+// Body: { periodId, source: 'noi_quy'|'timesheets', scores: [{deptId, score}] }
 // Writes auto scores globally per department — no dependency on existing evaluations.
 export async function POST(req: Request) {
   const user = await getAuthUser(req)

@@ -55,7 +55,7 @@ export default function MatrixClient({
   const [isSaving, startSaving] = useTransition()
   const dragIndexRef = useRef<number | null>(null)
 
-  const canManageAll = role === 'super_admin' || role === 'leadership'
+  const canManageAll = role === 'super_admin'
   const depts = initialDepts
 
   // Index map: deptId → position in ordered array
@@ -510,6 +510,7 @@ export default function MatrixClient({
         /* Grid */
         .mx-grid-wrap {
           flex: 0 0 auto;
+          align-self: flex-start;
           overflow-x: auto; overflow-y: visible;
           border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);
           background: rgba(255,255,255,0.015);

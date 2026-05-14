@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, Fragment } from "react";
+import { Fragment } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
-  ChevronRight,
-  FileText,
   Table2,
   Lock,
 } from "lucide-react";
@@ -546,15 +544,10 @@ export default function ResultsClient({
   canManageAll,
 }: Props) {
   const router = useRouter();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const ranked = results.filter((r) => r.avgScore != null);
   const unranked = results.filter((r) => r.avgScore == null);
-  const allRows = [...ranked, ...unranked];
-
-  function toggle(id: string) {
-    setExpandedId((prev) => (prev === id ? null : id));
-  }
+  const tableRows = [...ranked.filter(r => r.rank > 3), ...unranked];
 
   function handlePeriodChange(e: React.ChangeEvent<HTMLSelectElement>) {
     router.push(`/dashboard/results?periodId=${e.target.value}`);
@@ -651,101 +644,89 @@ export default function ResultsClient({
           </span>
           {(canManageAll || periodStatus === "closed") &&
             results.length > 0 && (
-              <>
-                <button
-                  className="rs-dl-btn rs-dl-btn--html"
-                  onClick={handleDownloadHTML}
-                  title="Tải báo cáo HTML"
-                >
-                  <FileText size={13} /> HTML
-                </button>
-                <button
-                  className="rs-dl-btn rs-dl-btn--xls"
-                  onClick={handleDownloadXLS}
-                  title="Tải bảng Excel"
-                >
-                  <Table2 size={13} /> Excel
-                </button>
-              </>
+              <button
+                className="rs-dl-btn rs-dl-btn--xls"
+                onClick={handleDownloadXLS}
+                title="Tải bảng Excel"
+              >
+                <Table2 size={13} /> Excel
+              </button>
             )}
         </div>
       </div>
 
+      {/* ── Stats cards ── */}
+      <div className="rs-stats">
+        <div className="rs-stat rs-stat--red">
+          <span className="rs-stat-val">{results.length}</span>
+          <span className="rs-stat-lbl">Phòng ban</span>
+        </div>
+        <div className="rs-stat rs-stat--gold">
+          <span className="rs-stat-val" style={{ color: '#C8A84B' }}>{totalSubmitted}</span>
+          <span className="rs-stat-lbl">Đánh giá đã nộp</span>
+        </div>
+        <div className="rs-stat">
+          <span className="rs-stat-val" style={{ fontSize: 22 }}>{maxScore}</span>
+          <span className="rs-stat-lbl">Điểm tối đa</span>
+        </div>
+        {ranked[0] && (
+          <div className="rs-stat rs-stat--winner">
+            <span className="rs-stat-winner-name">{ranked[0].code ?? ranked[0].name}</span>
+            <span className="rs-stat-lbl" style={{ marginTop: 10 }}>🥇 Hạng nhất · {fmt(ranked[0].avgScore)} điểm</span>
+          </div>
+        )}
+      </div>
+
       {/* ── Podium (top 3) ── */}
       {ranked.length >= 1 && (
-        <div className="rs-podium">
-          {([1, 0, 2] as const).map((podiumIndex) => {
-            const r = ranked[podiumIndex];
-            if (!r)
+        <div className="rs-podium-section">
+          <div className="rs-section-title">Top Phòng Ban</div>
+          <div className="rs-podium">
+            {([1, 0, 2] as const).map((podiumIndex) => {
+              const r = ranked[podiumIndex];
+              const place = podiumIndex + 1;
+              const colorMap: Record<number, string> = { 1: '#C8A84B', 2: '#9EB5C8', 3: '#C8956C' };
+              const heightMap: Record<number, string> = { 1: '90px', 2: '70px', 3: '55px' };
+              const medalMap: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
+              if (!r)
+                return <div key={podiumIndex} className="rs-podium-slot rs-podium-slot--empty" />;
+              const color = colorMap[place];
               return (
-                <div
-                  key={podiumIndex}
-                  className="rs-podium-slot rs-podium-slot--empty"
-                />
-              );
-            const place = podiumIndex + 1;
-            const heightMap: Record<number, string> = {
-              1: "80px",
-              2: "64px",
-              3: "52px",
-            };
-            return (
-              <div
-                key={r.id}
-                className={`rs-podium-slot rs-podium-slot--${place} ${r.isMyDept ? "rs-podium-slot--mine" : ""}`}
-              >
-                <div className="rs-podium-info">
-                  <span
-                    className="rs-podium-rank"
-                    style={{ color: RANK_COLOR[place] }}
-                  >
-                    #{place}
-                  </span>
-                  <span className="rs-podium-name">{r.code ?? r.name}</span>
-                  <span className="rs-podium-score">{fmt(r.avgScore)}</span>
-                  <span className="rs-podium-pct">
-                    {pct(r.avgScore, maxScore).toFixed(1)}%
-                  </span>
+                <div key={r.id} className={`rs-podium-slot rs-podium-slot--${place} ${r.isMyDept ? 'rs-podium-slot--mine' : ''}`}>
+                  <div className="rs-podium-info">
+                    <span className="rs-podium-medal">{medalMap[place]}</span>
+                    <span className="rs-podium-name">{r.code ?? r.name}</span>
+                    {r.code && <span className="rs-podium-fullname">{r.name}</span>}
+                    <span className="rs-podium-score" style={{ color }}>{fmt(r.avgScore)}</span>
+                    <span className="rs-podium-pct">{pct(r.avgScore, maxScore).toFixed(1)}%</span>
+                  </div>
+                  <div className="rs-podium-base" style={{ height: heightMap[place], borderColor: color, boxShadow: `0 0 24px ${color}20` }} />
                 </div>
-                <div
-                  className="rs-podium-base"
-                  style={{
-                    height: heightMap[place],
-                    borderColor: RANK_COLOR[place],
-                  }}
-                />
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* ── Ranking table ── */}
+      {/* ── Ranking table (rank 4+) ── */}
+      {tableRows.length > 0 && (
       <div className="rs-table-wrap">
         <table className="rs-table">
           <thead>
             <tr>
               <th className="rs-th th-rank">#</th>
               <th className="rs-th th-dept">Phòng ban</th>
-              <th className="rs-th th-bar">Điểm trung bình</th>
               <th className="rs-th th-score">Điểm TB</th>
-              <th className="rs-th th-pct">%</th>
-              <th className="rs-th th-count">Được đánh giá</th>
-              <th className="rs-th th-expand" />
             </tr>
           </thead>
           <tbody>
-            {allRows.map((r) => {
-              const isExpanded = expandedId === r.id;
-              const barPct = pct(r.avgScore, maxScore);
-              const rankColor = r.rank <= 3 ? RANK_COLOR[r.rank] : undefined;
+            {tableRows.map((r) => {
+              const rankColor = r.rank > 0 && r.rank <= 3 ? RANK_COLOR[r.rank] : undefined;
 
-              const canExpand = canManageAll || r.isMyDept
               return (
                 <Fragment key={r.id}>
                   <tr
-                    className={`rs-tr ${r.isMyDept ? "rs-tr--mine" : ""} ${isExpanded ? "rs-tr--expanded" : ""} ${!canExpand ? "rs-tr--locked" : ""}`}
-                    onClick={() => canExpand && toggle(r.id)}
+                    className={`rs-tr ${r.isMyDept ? "rs-tr--mine" : ""}`}
                   >
                     <td className="rs-td td-rank">
                       {r.avgScore != null ? (
@@ -769,18 +750,6 @@ export default function ResultsClient({
                       {r.isMyDept && <span className="rs-you">bạn</span>}
                     </td>
 
-                    <td className="rs-td td-bar">
-                      <div className="rs-bar-track">
-                        <div
-                          className="rs-bar-fill"
-                          style={{
-                            width: `${barPct}%`,
-                            background: rankColor ?? "#B30000",
-                          }}
-                        />
-                      </div>
-                    </td>
-
                     <td className="rs-td td-score">
                       <span
                         className="rs-score-val"
@@ -789,136 +758,14 @@ export default function ResultsClient({
                         {fmt(r.avgScore)}
                       </span>
                     </td>
-
-                    <td className="rs-td td-pct">
-                      <span className="rs-pct-val">
-                        {r.avgScore != null ? `${barPct.toFixed(1)}%` : "—"}
-                      </span>
-                    </td>
-
-                    <td className="rs-td td-count">
-                      <span
-                        className={`rs-count ${r.receivedCount === r.totalEvaluators && r.totalEvaluators > 0 ? "rs-count--full" : ""}`}
-                      >
-                        {r.receivedCount}
-                      </span>
-                      <span className="rs-count-total">
-                        /{r.totalEvaluators}
-                      </span>
-                    </td>
-
-                    <td className="rs-td td-expand">
-                      {canExpand && (isExpanded ? (
-                        <ChevronDown
-                          size={13}
-                          className="rs-chevron rs-chevron--open"
-                        />
-                      ) : (
-                        <ChevronRight size={13} className="rs-chevron" />
-                      ))}
-                    </td>
                   </tr>
-
-                  {isExpanded && (
-                    <tr className="rs-detail-row">
-                      <td colSpan={7} className="rs-detail-cell">
-                        <div className="rs-detail-inner">
-                          {(() => {
-                            const hasAnyScore = r.criteriaAvg.some(
-                              (a) => a.avgRaw != null || a.avgWeighted != null,
-                            );
-                            if (!hasAnyScore) {
-                              return (
-                                <span className="rs-detail-empty">
-                                  Chưa có đánh giá nào được nộp.
-                                </span>
-                              );
-                            }
-                            return (
-                              <table className="rs-detail-table">
-                                <thead>
-                                  <tr>
-                                    <th className="rs-dth dth-code">Mã</th>
-                                    <th className="rs-dth dth-name">Tiêu chí</th>
-                                    <th className="rs-dth dth-weight">Hệ số</th>
-                                    <th className="rs-dth dth-raw">TB điểm</th>
-                                    <th className="rs-dth dth-bar">Phân bố</th>
-                                    <th className="rs-dth dth-weighted">
-                                      TB quy đổi
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {criteria.map((c) => {
-                                    const avg = r.criteriaAvg.find(
-                                      (a) => a.criteriaId === c.id,
-                                    );
-                                    const rawMax = c.input_type === 'auto' ? 100 : 10;
-                                    const rawPct =
-                                      avg?.avgRaw != null
-                                        ? Math.min(100, (avg.avgRaw / rawMax) * 100)
-                                        : 0;
-                                    return (
-                                      <tr key={c.id} className="rs-dtr">
-                                        <td className="rs-dtd dtd-code">
-                                          {c.code ?? "—"}
-                                        </td>
-                                        <td className="rs-dtd dtd-name">
-                                          {c.name}
-                                          {c.input_type === 'auto' && (
-                                            <span className="rs-auto-badge">auto</span>
-                                          )}
-                                        </td>
-                                        <td className="rs-dtd dtd-weight">
-                                          ×{c.weight}
-                                        </td>
-                                        <td className="rs-dtd dtd-raw">
-                                          {fmt(avg?.avgRaw ?? null)}
-                                        </td>
-                                        <td className="rs-dtd dtd-bar">
-                                          <div className="rs-dbar-track">
-                                            <div
-                                              className={`rs-dbar-fill${c.input_type === 'auto' ? ' rs-dbar-fill--auto' : ''}`}
-                                              style={{ width: `${rawPct}%` }}
-                                            />
-                                          </div>
-                                        </td>
-                                        <td className="rs-dtd dtd-weighted">
-                                          <span className="rs-weighted-val">
-                                            {fmt(avg?.avgWeighted ?? null)}
-                                          </span>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                                <tfoot>
-                                  <tr className="rs-dfoot">
-                                    <td colSpan={5} className="rs-dfoot-label">
-                                      Tổng
-                                    </td>
-                                    <td className="rs-dfoot-val">
-                                      {fmt(r.avgScore)}
-                                      <span className="rs-dfoot-max">
-                                        {" "}
-                                        / {maxScore}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                </tfoot>
-                              </table>
-                            );
-                          })()}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                 </Fragment>
               );
             })}
           </tbody>
         </table>
       </div>
+      )}
 
       <style>{rsStyles}</style>
     </div>
@@ -972,36 +819,54 @@ const rsStyles = `
     transition: background 0.15s, transform 0.15s;
   }
   .rs-dl-btn:hover { transform: translateY(-1px); }
-  .rs-dl-btn--html {
-    background: rgba(0,140,200,0.1); color: rgba(80,180,240,0.9);
-    border: 1px solid rgba(0,140,200,0.2);
-  }
-  .rs-dl-btn--html:hover { background: rgba(0,140,200,0.18); }
   .rs-dl-btn--xls {
     background: rgba(0,160,80,0.1); color: rgba(0,200,100,0.9);
     border: 1px solid rgba(0,160,80,0.2);
   }
   .rs-dl-btn--xls:hover { background: rgba(0,160,80,0.18); }
 
+  /* ── Stats cards ── */
+  .rs-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .rs-stat {
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+    border-top: 2px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 16px 18px;
+  }
+  .rs-stat--red  { border-top-color: #B30000; }
+  .rs-stat--gold { border-top-color: #C8A84B; background: rgba(200,168,75,0.03); }
+  .rs-stat--winner { border-top-color: #C8A84B; background: linear-gradient(160deg, rgba(200,168,75,0.05) 0%, rgba(255,255,255,0.015) 55%); }
+  .rs-stat-val { display: block; font-size: 28px; font-weight: 300; color: #fff; letter-spacing: -0.02em; line-height: 1; }
+  .rs-stat-winner-name { display: block; font-size: 15px; font-weight: 700; color: #C8A84B; letter-spacing: 0.03em; line-height: 1.25; }
+  .rs-stat-lbl { display: block; font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.2); margin-top: 8px; }
+
   /* ── Podium ── */
+  .rs-podium-section { display: flex; flex-direction: column; gap: 18px; }
+  .rs-section-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase;
+    color: #C8A84B; display: flex; align-items: center; gap: 14px;
+  }
+  .rs-section-title::before, .rs-section-title::after { content: ''; flex: 1; height: 1px; }
+  .rs-section-title::before { background: linear-gradient(270deg, rgba(200,168,75,0.18), transparent); }
+  .rs-section-title::after  { background: linear-gradient(90deg,  rgba(200,168,75,0.18), transparent); }
   .rs-podium { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: end; }
-  .rs-podium-slot { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .rs-podium-slot { display: flex; flex-direction: column; align-items: center; }
   .rs-podium-slot--empty { visibility: hidden; }
   .rs-podium-info {
     display: flex; flex-direction: column; align-items: center; gap: 2px;
-    padding: 12px 16px 10px; width: 100%;
-    background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07);
+    padding: 16px 14px 12px; width: 100%; text-align: center;
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07);
     border-bottom: none; border-radius: 10px 10px 0 0;
   }
-  .rs-podium-slot--1 .rs-podium-info { background: rgba(255,215,0,0.04); border-color: rgba(255,215,0,0.15); }
-  .rs-podium-slot--2 .rs-podium-info { background: rgba(192,192,192,0.03); border-color: rgba(192,192,192,0.1); }
-  .rs-podium-slot--3 .rs-podium-info { background: rgba(205,127,50,0.03); border-color: rgba(205,127,50,0.1); }
+  .rs-podium-slot--1 .rs-podium-info { background: rgba(200,168,75,0.04); border-color: rgba(200,168,75,0.18); }
+  .rs-podium-slot--2 .rs-podium-info { background: rgba(158,181,200,0.03); border-color: rgba(158,181,200,0.12); }
+  .rs-podium-slot--3 .rs-podium-info { background: rgba(200,149,108,0.03); border-color: rgba(200,149,108,0.12); }
   .rs-podium-slot--mine .rs-podium-info { border-color: rgba(179,0,0,0.3); }
-  .rs-podium-rank { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; }
-  .rs-podium-name { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: 0.06em; }
-  .rs-podium-score { font-size: 22px; font-weight: 300; color: rgba(255,255,255,0.9); letter-spacing: -0.02em; line-height: 1; margin-top: 4px; }
-  .rs-podium-pct { font-size: 11px; color: rgba(255,255,255,0.3); }
-  .rs-podium-base { width: 100%; border: 1px solid; border-top: none; border-radius: 0 0 8px 8px; opacity: 0.15; background: currentColor; }
+  .rs-podium-medal { font-size: 28px; line-height: 1; margin-bottom: 6px; }
+  .rs-podium-name { font-size: 16px; font-weight: 700; color: #fff; letter-spacing: 0.05em; }
+  .rs-podium-fullname { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px; font-weight: 300; }
+  .rs-podium-score { font-size: 26px; font-weight: 300; letter-spacing: -0.03em; line-height: 1; margin-top: 8px; }
+  .rs-podium-pct { font-size: 11px; color: rgba(255,255,255,0.25); margin-top: 4px; }
+  .rs-podium-base { width: 100%; border: 1px solid; border-top: none; border-radius: 0 0 8px 8px; background: linear-gradient(180deg, rgba(0,0,0,0.25), rgba(0,0,0,0.6)); display: flex; align-items: center; justify-content: center; }
 
   /* ── Table ── */
   .rs-table-wrap {
@@ -1013,25 +878,23 @@ const rsStyles = `
   .rs-table-wrap::-webkit-scrollbar-thumb { background: rgba(179,0,0,0.15); border-radius: 4px; }
   .rs-table { width: 100%; border-collapse: collapse; }
   .rs-th {
-    padding: 10px 14px; text-align: left;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
-    color: rgba(255,255,255,0.25); border-bottom: 1px solid rgba(255,255,255,0.06);
-    white-space: nowrap; position: sticky; top: 0; background: #0e0e0e; z-index: 1;
+    padding: 8px 12px; text-align: left;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: rgba(200,168,75,0.7); border-bottom: 1px solid rgba(200,168,75,0.1);
+    white-space: nowrap; position: sticky; top: 0;
+    background: linear-gradient(180deg, #1a0000, #120000); z-index: 1;
   }
   .th-rank { width: 44px; text-align: center; }
   .th-bar  { min-width: 160px; }
   .th-score, .th-pct { width: 80px; text-align: right; }
   .th-count { width: 90px; text-align: center; }
   .th-expand { width: 32px; }
-  .rs-tr { border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; transition: background 0.1s; }
-  .rs-tr:hover { background: rgba(255,255,255,0.03); }
+  .rs-tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; }
+  .rs-tr:hover { background: rgba(255,255,255,0.025); }
   .rs-tr--mine { background: rgba(179,0,0,0.04); }
   .rs-tr--mine:hover { background: rgba(179,0,0,0.07); }
-  .rs-tr--locked { cursor: default; }
-  .rs-tr--locked:hover { background: transparent; }
-  .rs-tr--expanded { background: rgba(255,255,255,0.03); }
-  .rs-tr:last-child:not(.rs-detail-row) { border-bottom: none; }
-  .rs-td { padding: 12px 14px; vertical-align: middle; }
+  .rs-tr:last-child { border-bottom: none; }
+  .rs-td { padding: 9px 12px; vertical-align: middle; }
   .td-rank { text-align: center; }
   .rs-rank-num { font-size: 14px; font-weight: 700; }
   .rs-rank-dash { color: rgba(255,255,255,0.2); font-size: 13px; }
@@ -1096,14 +959,17 @@ const rsStyles = `
   [data-theme="light"] .rs-sub { color: rgba(0,0,0,0.3); }
   [data-theme="light"] .rs-meta { color: rgba(0,0,0,0.3); }
   [data-theme="light"] .rs-locked-badge { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); color: rgba(0,0,0,0.3); }
-  [data-theme="light"] .rs-dl-btn--html { background: rgba(0,120,180,0.07); color: rgba(0,100,160,0.9); border-color: rgba(0,120,180,0.18); }
   [data-theme="light"] .rs-dl-btn--xls  { background: rgba(0,130,60,0.07);  color: rgba(0,110,50,0.9);  border-color: rgba(0,130,60,0.18);  }
+  [data-theme="light"] .rs-stat { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .rs-stat-val { color: #1a1a1a; }
+  [data-theme="light"] .rs-stat-lbl { color: rgba(0,0,0,0.3); }
+  [data-theme="light"] .rs-section-title { color: #8a6800; }
   [data-theme="light"] .rs-podium-info { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
   [data-theme="light"] .rs-podium-name { color: #1a1a1a; }
   [data-theme="light"] .rs-podium-score { color: rgba(0,0,0,0.75); }
   [data-theme="light"] .rs-podium-pct { color: rgba(0,0,0,0.3); }
   [data-theme="light"] .rs-table-wrap { background: #fff; border-color: rgba(0,0,0,0.08); }
-  [data-theme="light"] .rs-th { background: #f5f5f5; color: rgba(0,0,0,0.35); border-bottom-color: rgba(0,0,0,0.07); }
+  [data-theme="light"] .rs-th { background: #f9f0f0; color: rgba(130,0,0,0.7); border-bottom-color: rgba(179,0,0,0.12); }
   [data-theme="light"] .rs-tr { border-bottom-color: rgba(0,0,0,0.05); }
   [data-theme="light"] .rs-tr:hover { background: rgba(0,0,0,0.02); }
   [data-theme="light"] .rs-tr--expanded { background: rgba(0,0,0,0.02); }

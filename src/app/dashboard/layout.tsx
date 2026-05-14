@@ -27,11 +27,11 @@ const NAV = [
   { href: '/dashboard/matrix',   label: 'Ma trận đánh giá',   icon: LayoutGrid,         roles: ['super_admin','leadership','department'] },
   { href: '/dashboard/evaluate', label: 'Đánh giá',           icon: ClipboardPen,       roles: ['super_admin','leadership','department'] },
   { href: '/dashboard/status',   label: 'Tình trạng',         icon: Activity,           roles: ['super_admin','leadership','department'] },
-  { href: '/dashboard/results',  label: 'Kết quả',            icon: BarChart2,          roles: ['super_admin','leadership','department'] },
+  { href: '/dashboard/results',  label: 'Dashboard',          icon: BarChart2,          roles: ['super_admin','leadership','department'] },
   { href: '/dashboard/results/detail', label: 'Kết quả chi tiết', icon: FileBarChart,   roles: ['super_admin','leadership'] },
-  { href: '/dashboard/departments',    label: 'Phòng ban',          icon: Building2,      roles: ['super_admin', 'leadership'] },
-  { href: '/dashboard/users',          label: 'Tài khoản',          icon: Users,          roles: ['super_admin', 'leadership'] },
-  { href: '/dashboard/reports',        label: 'Báo cáo',            icon: Flag,           roles: ['super_admin', 'leadership'] },
+  { href: '/dashboard/departments',    label: 'Phòng ban',          icon: Building2,      roles: ['super_admin'] },
+  { href: '/dashboard/users',          label: 'Tài khoản',          icon: Users,          roles: ['super_admin'] },
+  { href: '/dashboard/reports',        label: 'Báo cáo',            icon: Flag,           roles: ['super_admin'] },
   { href: '/dashboard/data-processing', label: 'Xử lí Dữ liệu',   icon: DatabaseZap,    roles: ['super_admin'] },
 ] as const
 
@@ -146,7 +146,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </div>
           <div className="topbar-right">
-            <NotificationBell deptId={session?.user?.departmentId ?? null} />
+            <NotificationBell deptId={session?.user?.departmentId ?? null} role={role} />
             <button
               className="theme-toggle"
               onClick={toggle}

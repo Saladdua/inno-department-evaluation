@@ -82,10 +82,11 @@ export default function EvaluateClient({
 }: Props) {
   const canManageAll = role === 'super_admin' || role === 'leadership'
 
-  // Dept users and leaders only see manual criteria — auto criteria are filled by data processing
+  // Dept users and leaders see manual criteria; auto criteria are filled by data processing.
+  // 'leader' sub-type criteria are only visible to leadership/super_admin evaluators.
   const displayCriteria = role === 'super_admin'
     ? criteria
-    : criteria.filter(c => c.input_type !== 'auto')
+    : criteria.filter(c => c.input_type !== 'auto' && (isLeader || c.auto_source !== 'leader'))
 
   const evaluatorIds = useMemo(() => {
     return [...new Set(matrix.map(e => e.evaluator_id))]
@@ -107,6 +108,7 @@ export default function EvaluateClient({
   const [draftScores, setDraftScores] = useState<Record<string, DraftScore>>({})
   const [isPending, startTransition] = useTransition()
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [overMaxId, setOverMaxId] = useState<string | null>(null)
 
   const evalByPair = useMemo(() => {
     const map: Record<string, EvaluationRow> = {}
@@ -149,7 +151,12 @@ export default function EvaluateClient({
     let v = value
     if (field === 'raw_score' && value !== '') {
       const num = Number(value)
-      if (!isNaN(num) && num > 100) v = '100'
+      if (!isNaN(num) && num > 100) {
+        setOverMaxId(criteriaId)
+        v = ''
+      } else {
+        if (overMaxId === criteriaId) setOverMaxId(null)
+      }
     }
     setDraftScores(prev => ({
       ...prev,
@@ -354,7 +361,7 @@ export default function EvaluateClient({
 
         <div className="ev-left-footer">
           <span className="ev-stat-text">
-            {submittedCount}/{assignments.length} đã nộp
+            {submittedCount}/{assignments.length} đã đánh giá
           </span>
           <div className="ev-progress-bar">
             <div
@@ -387,7 +394,7 @@ export default function EvaluateClient({
               <div className="ev-badges">
                 {isSubmitted && (
                   <span className="ev-badge ev-badge--submitted">
-                    <CheckCircle2 size={11} /> Đã nộp
+                    <CheckCircle2 size={11} /> Đã đánh giá
                   </span>
                 )}
                 {!isSubmitted && selectedEval?.status === 'draft' && (
@@ -426,7 +433,7 @@ export default function EvaluateClient({
                           {isAuto && <span className="ev-auto-badge">Tự động</span>}
                         </td>
                         <td className="ev-td td-weight">×{Number(c.weight)}</td>
-                        <td className="ev-td td-score">
+                        <td className="ev-td td-score" style={{ position: 'relative' }}>
                           <input
                             type="number"
                             min="1"
@@ -436,9 +443,12 @@ export default function EvaluateClient({
                             onChange={e => handleScoreChange(c.id, 'raw_score', e.target.value)}
                             onBlur={e => handleScoreBlur(c.id, e.target.value)}
                             disabled={isAuto || !canEdit || isPending}
-                            className={`ev-score-input ${isInvalid ? 'ev-score-input--invalid' : ''} ${isAuto ? 'ev-score-input--auto' : ''}`}
+                            className={`ev-score-input ${isInvalid ? 'ev-score-input--invalid' : ''} ${isAuto ? 'ev-score-input--auto' : ''} ${overMaxId === c.id ? 'ev-score-input--over-max' : ''}`}
                             placeholder="—"
                           />
+                          {overMaxId === c.id && (
+                            <span className="ev-over-max-tip">Điểm phải từ 1–100</span>
+                          )}
                         </td>
                         <td className="ev-td td-weighted">
                           {weighted != null
@@ -787,6 +797,9 @@ export default function EvaluateClient({
         .ev-score-input:disabled { opacity: 0.4; cursor: not-allowed; }
         .ev-score-input--invalid { border-color: rgba(255,80,80,0.5); background: rgba(255,50,50,0.05); }
         .ev-score-input--auto { opacity: 0.6; cursor: not-allowed; background: rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.15); }
+        .ev-score-input--over-max { border-color: rgba(255,160,0,0.6); background: rgba(255,140,0,0.05); animation: evShake 0.25s ease; }
+        @keyframes evShake { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-3px); } 75% { transform:translateX(3px); } }
+        .ev-over-max-tip { position:absolute; top:100%; left:0; margin-top:3px; background:rgba(30,20,0,0.95); border:1px solid rgba(255,160,0,0.4); color:rgba(255,200,80,0.95); font-size:11px; padding:4px 8px; border-radius:6px; white-space:nowrap; z-index:10; pointer-events:none; }
         .ev-score-input::-webkit-inner-spin-button { opacity: 0.5; }
 
         .ev-tr--auto { background: rgba(251,191,36,0.02); }

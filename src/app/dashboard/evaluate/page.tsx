@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getSelectedPeriod } from '@/lib/selected-period'
 import EvaluateClient from './EvaluateClient'
 import type { Criterion, Department, MatrixEntry, EvaluationRow, ScoreRow } from './EvaluateClient'
 
@@ -15,18 +16,20 @@ export default async function EvaluatePage() {
 
   const supabase = createServiceClient()
 
-  const { data: period } = await supabase
-    .from('evaluation_periods')
-    .select('id, quarter, year')
-    .order('year', { ascending: false })
-    .order('quarter', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const period = await getSelectedPeriod()
 
   if (!period) {
     return (
       <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
         Chưa có kỳ đánh giá nào được thiết lập.
+      </div>
+    )
+  }
+
+  if (period.status === 'closed') {
+    return (
+      <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
+        Kỳ đánh giá Quý {period.quarter} · {period.year} đã kết thúc. Xem kết quả tại trang Kết quả.
       </div>
     )
   }

@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { setSelectedPeriod } from '@/app/actions/period'
 import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus } from 'lucide-react'
 
 /* ── Types ─────────────────────────────────────────── */
@@ -251,7 +252,9 @@ function CriteriaTable({
         name: draftName.trim(),
         weight: w,
         input_type: draftType,
-        auto_source: draftType === 'auto' ? draftAutoSource || null : null,
+        auto_source: draftType === 'auto'
+          ? (draftAutoSource || null)
+          : (draftAutoSource === 'leader' ? 'leader' : null),
       })
       setEditingId(null)
     })
@@ -389,7 +392,7 @@ function CriteriaTable({
                             onChange={e => setDraftAutoSource(e.target.value)}
                           >
                             <option value="">Chọn nguồn…</option>
-                            <option value="bang_luong">Bảng lương</option>
+                            <option value="noi_quy">Tuân thủ nội quy</option>
                             <option value="timesheets">Timesheets</option>
                             <option value="dao_tao">Đào tạo</option>
                             <option value="marketing">Marketing</option>
@@ -398,12 +401,24 @@ function CriteriaTable({
                             <option value="gitiho">Gitiho</option>
                           </select>
                         )}
+                        {draftType === 'manual' && (
+                          <select
+                            className="ct-type-select"
+                            value={draftAutoSource === 'leader' ? 'leader' : ''}
+                            onChange={e => setDraftAutoSource(e.target.value)}
+                          >
+                            <option value="">Đánh giá chéo</option>
+                            <option value="leader">Ban lãnh đạo</option>
+                          </select>
+                        )}
                       </div>
                     ) : (
                       <span className={`ct-type-badge ct-type-badge--${c.input_type}`}>
                         {c.input_type === 'auto'
                           ? <><Zap size={10} /> {c.auto_source ?? 'auto'}</>
-                          : <><Hand size={10} /> Thủ công</>}
+                          : c.auto_source === 'leader'
+                            ? <><Hand size={10} /> BLĐ</>
+                            : <><Hand size={10} /> Đánh giá chéo</>}
                       </span>
                     )}
                   </td>
@@ -464,7 +479,9 @@ function AddCriterionModal({
           name:          form.name,
           weight:        parseFloat(form.weight) || 1,
           input_type:    form.input_type,
-          auto_source:   form.input_type === 'auto' ? form.auto_source || null : null,
+          auto_source:   form.input_type === 'auto'
+            ? (form.auto_source || null)
+            : (form.auto_source === 'leader' ? 'leader' : null),
           display_order: nextOrder,
         }),
       })
@@ -512,13 +529,23 @@ function AddCriterionModal({
               <select className="mf-input" value={form.auto_source}
                 onChange={e => setForm({ ...form, auto_source: e.target.value })}>
                 <option value="">Chọn nguồn…</option>
-                <option value="bang_luong">Bảng lương</option>
+                <option value="noi_quy">Tuân thủ nội quy</option>
                 <option value="timesheets">Timesheets</option>
                 <option value="dao_tao">Đào tạo</option>
                 <option value="marketing">Marketing</option>
                 <option value="google_sheets">Google Sheets</option>
                 <option value="1office">1Office</option>
                 <option value="gitiho">Gitiho</option>
+              </select>
+            </div>
+          )}
+          {form.input_type === 'manual' && (
+            <div className="mf-field">
+              <label className="mf-label">Hình thức đánh giá</label>
+              <select className="mf-input" value={form.auto_source}
+                onChange={e => setForm({ ...form, auto_source: e.target.value })}>
+                <option value="">Đánh giá chéo</option>
+                <option value="leader">Ban lãnh đạo</option>
               </select>
             </div>
           )}
@@ -812,7 +839,7 @@ export default function CriteriaClient({
   const [showImport, setShowImport] = useState(false)
   const [showCreatePeriod, setShowCreatePeriod] = useState(false)
 
-  const canEdit = role === 'super_admin' || role === 'leadership'
+  const canEdit = role === 'super_admin'
 
   // Restore last-selected period when navigating back without a periodId param
   useEffect(() => {
@@ -821,6 +848,7 @@ export default function CriteriaClient({
     if (!savedId) return
     const saved = periods.find(p => p.id === savedId)
     if (!saved || saved.id === period?.id) return
+    void setSelectedPeriod(savedId)
     setPeriod(saved)
     setCriteria([])
     fetch(`/api/criteria?periodId=${savedId}`)
@@ -853,6 +881,7 @@ export default function CriteriaClient({
 
   function switchPeriod(selectedId: string, newPeriod: Period | null) {
     localStorage.setItem('criteria_period_id', selectedId)
+    void setSelectedPeriod(selectedId)
     setPeriod(newPeriod)
     setCriteria([])
     // Update URL without going through the Next.js router — avoids server re-render
@@ -1065,7 +1094,9 @@ export default function CriteriaClient({
           color: rgba(255,255,255,0.25); font-family: monospace; font-weight: 600;
           text-align: left; white-space: nowrap;
         }
-        .ct-th--stt, .ct-th--code, .ct-th--weight, .ct-th--type, .ct-th--actions { width: 1%; }
+        .ct-th--stt, .ct-th--code, .ct-th--weight, .ct-th--actions { width: 1%; }
+        .ct-th--type { width: 200px; min-width: 180px; }
+        .ct-th--name { max-width: 260px; }
         .ct-row {
           border-top: 1px solid rgba(255,255,255,0.04);
           animation: rowIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
