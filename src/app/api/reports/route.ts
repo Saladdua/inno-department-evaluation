@@ -54,7 +54,7 @@ export async function DELETE(req: Request) {
     .eq('id', id)
     .maybeSingle()
 
-  const notifData = (report?.notification as { data: Record<string, string> } | null)?.data ?? {}
+  const notifData = (report?.notification as unknown as { data: Record<string, string> } | null)?.data ?? {}
   const evaluator_id: string | undefined = notifData.evaluator_dept_id
   const reporter_id: string | undefined = report?.reporter_dept_id
   const period_id: string | undefined = notifData.period_id

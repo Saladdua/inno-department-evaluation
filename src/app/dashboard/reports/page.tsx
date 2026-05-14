@@ -26,5 +26,5 @@ export default async function ReportsPage() {
     `)
     .order('created_at', { ascending: false })
 
-  return <ReportsClient initialReports={(data ?? []) as Report[]} />
+  return <ReportsClient initialReports={(data ?? []) as unknown as Report[]} />
 }
