@@ -1177,7 +1177,7 @@ export default function DataProcessingClient({
   }
 
   const handleApply = (
-    source: 'bang_luong' | 'timesheets',
+    source: 'bang_luong' | 'timesheets' | 'marketing' | 'dao_tao',
     result: Record<string, number>,
     setter: React.Dispatch<React.SetStateAction<BoxState>>,
   ) => {

@@ -7,8 +7,8 @@ const PUBLIC_PATHS = ['/login']
 // Which roles can access each route prefix (most-specific first)
 const ROLE_GATES: { prefix: string; roles: UserRole[] }[] = [
   { prefix: '/dashboard/data-processing', roles: ['super_admin'] },
-  { prefix: '/dashboard/results/detail',  roles: ['leadership', 'super_admin', 'marketing'] },
-  { prefix: '/dashboard',                 roles: ['leadership', 'super_admin', 'department', 'marketing'] },
+  { prefix: '/dashboard/results/detail',  roles: ['leadership', 'super_admin'] },
+  { prefix: '/dashboard',                 roles: ['leadership', 'super_admin', 'department'] },
 ]
 
 export default auth((req) => {

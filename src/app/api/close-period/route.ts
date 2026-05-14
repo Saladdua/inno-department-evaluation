@@ -166,8 +166,6 @@ export async function POST(req: Request) {
   await supabase.from('evaluations').delete().eq('period_id', periodId)
   // 6. auto_scores
   await supabase.from('auto_scores').delete().eq('period_id', periodId)
-  // 6b. mkt_scores
-  await supabase.from('mkt_scores').delete().eq('period_id', periodId)
   // 7. evaluation_matrix
   await supabase.from('evaluation_matrix').delete().eq('period_id', periodId)
   // 8. criteria (references evaluation_periods)

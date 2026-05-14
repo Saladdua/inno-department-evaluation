@@ -13,9 +13,9 @@ export default async function ResultsPage({
   const session = await auth()
   if (!session) redirect('/login')
 
-  const role = session.user.role as 'super_admin' | 'leadership' | 'department' | 'marketing'
+  const role = session.user.role as 'super_admin' | 'leadership' | 'department'
   const myDeptId = session.user.departmentId ?? null
-  const canManageAll = role === 'super_admin' || role === 'leadership' || role === 'marketing'
+  const canManageAll = role === 'super_admin' || role === 'leadership'
 
   const supabase = createServiceClient()
 
