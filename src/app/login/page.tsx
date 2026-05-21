@@ -12,7 +12,7 @@ function LoginForm() {
   const error = searchParams.get("error");
   const isAccessDenied = error === "AccessDenied";
 
-  const isDev = process.env.NODE_ENV === 'development';
+  const isDev = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === 'true';
   const [devEmail, setDevEmail] = useState('');
   const [isPending, startTransition] = useTransition();
   const canvasRef = useRef<HTMLCanvasElement>(null);
