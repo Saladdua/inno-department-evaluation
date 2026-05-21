@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('users')
-    .select('id, name, email, role, department_id, departments(id, name, code)')
+    .select('id, name, email, role, department_id, region, departments(id, name, code)')
     .order('name')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -25,17 +25,17 @@ export async function POST(req: Request) {
   if (adminOnly(user)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, email, password, role, department_id } = body
+  const { name, email, role, department_id, region } = body
 
-  if (!name || !email || !password || !role) {
+  if (!name || !email || !role) {
     return NextResponse.json({ error: 'Thiếu thông tin bắt buộc' }, { status: 400 })
   }
 
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('users')
-    .insert({ name, email, password_hash: password, role, department_id: department_id || null })
-    .select('id, name, email, role, department_id, departments(id, name, code)')
+    .insert({ name, email, role, department_id: department_id || null, region: region || 'Miền Bắc' })
+    .select('id, name, email, role, department_id, region, departments(id, name, code)')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -47,18 +47,17 @@ export async function PUT(req: Request) {
   if (adminOnly(user)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { id, name, email, password, role, department_id } = body
+  const { id, name, email, role, department_id, region } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
-  const updates: Record<string, unknown> = { name, email, role, department_id: department_id || null }
-  if (password) updates.password_hash = password
+  const updates: Record<string, unknown> = { name, email, role, department_id: department_id || null, region: region || 'Miền Bắc' }
 
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('users')
     .update(updates)
     .eq('id', id)
-    .select('id, name, email, role, department_id, departments(id, name, code)')
+    .select('id, name, email, role, department_id, region, departments(id, name, code)')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

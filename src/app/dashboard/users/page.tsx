@@ -12,11 +12,11 @@ export default async function UsersPage() {
   const [{ data: usersData }, { data: deptsData }] = await Promise.all([
     supabase
       .from('users')
-      .select('id, name, email, role, department_id, departments(id, name, code)')
+      .select('id, name, email, role, department_id, region, departments(id, name, code)')
       .order('name'),
     supabase
       .from('departments')
-      .select('id, name, code')
+      .select('id, name, code, region')
       .order('name'),
   ])
 

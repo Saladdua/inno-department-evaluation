@@ -7,6 +7,7 @@ export interface Department {
   id: string
   name: string
   code: string | null
+  region: string | null
   userCount: number
 }
 
@@ -15,9 +16,10 @@ type ModalMode = 'add' | 'edit'
 interface FormState {
   name: string
   code: string
+  region: string
 }
 
-const EMPTY_FORM: FormState = { name: '', code: '' }
+const EMPTY_FORM: FormState = { name: '', code: '', region: 'Miền Bắc' }
 
 function DeptModal({
   mode,
@@ -32,7 +34,7 @@ function DeptModal({
 }) {
   const [form, setForm] = useState<FormState>(() =>
     mode === 'edit' && dept
-      ? { name: dept.name, code: dept.code ?? '' }
+      ? { name: dept.name, code: dept.code ?? '', region: dept.region ?? 'Miền Bắc' }
       : EMPTY_FORM
   )
   const [error, setError] = useState('')
@@ -51,6 +53,7 @@ function DeptModal({
       const body: Record<string, unknown> = {
         name: form.name.trim(),
         code: form.code.trim() || null,
+        region: form.region || 'Miền Bắc',
       }
       if (mode === 'edit' && dept) body.id = dept.id
 
@@ -62,7 +65,7 @@ function DeptModal({
       const json = await res.json()
       if (!res.ok) { setError(json.error ?? 'Lỗi không xác định'); return }
 
-      onSaved({ ...json, userCount: dept?.userCount ?? 0 })
+      onSaved({ ...json, userCount: dept?.userCount ?? 0, region: json.region ?? 'Miền Bắc' })
       onClose()
     })
   }
@@ -90,18 +93,28 @@ function DeptModal({
             />
           </div>
 
-          <div className="dm-field">
-            <label className="dm-label">
-              Mã phòng ban
-              <span className="dm-hint"> (tuỳ chọn — hiển thị trong bảng đánh giá)</span>
-            </label>
-            <input
-              className="dm-input dm-input--code"
-              value={form.code}
-              onChange={e => set('code', e.target.value.toUpperCase())}
-              placeholder="VD: KT, HCNS, KD…"
-              maxLength={10}
-            />
+          <div className="dm-row">
+            <div className="dm-field">
+              <label className="dm-label">
+                Mã phòng ban
+                <span className="dm-hint"> (tuỳ chọn)</span>
+              </label>
+              <input
+                className="dm-input dm-input--code"
+                value={form.code}
+                onChange={e => set('code', e.target.value.toUpperCase())}
+                placeholder="VD: KT, HCNS, KD…"
+                maxLength={10}
+              />
+            </div>
+
+            <div className="dm-field">
+              <label className="dm-label">Cơ sở <span className="dm-req">*</span></label>
+              <select className="dm-input" value={form.region} onChange={e => set('region', e.target.value)}>
+                <option value="Miền Bắc">Miền Bắc</option>
+                <option value="Miền Nam">Miền Nam</option>
+              </select>
+            </div>
           </div>
 
           {error && <div className="dm-error">{error}</div>}
@@ -121,19 +134,26 @@ function DeptModal({
 export default function DepartmentsClient({ initialDepartments }: { initialDepartments: Department[] }) {
   const [departments, setDepartments] = useState(initialDepartments)
   const [search, setSearch] = useState('')
+  const [regionFilter, setRegionFilter] = useState<'all' | 'Miền Bắc' | 'Miền Nam'>('all')
   const [modal, setModal] = useState<{ mode: ModalMode; dept: Department | null } | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return departments
-    return departments.filter(d =>
-      d.name.toLowerCase().includes(q) || (d.code ?? '').toLowerCase().includes(q)
-    )
-  }, [departments, search])
+    return departments.filter(d => {
+      const matchRegion = regionFilter === 'all' || (d.region ?? 'Miền Bắc') === regionFilter
+      const matchSearch = !q || d.name.toLowerCase().includes(q) || (d.code ?? '').toLowerCase().includes(q)
+      return matchRegion && matchSearch
+    })
+  }, [departments, search, regionFilter])
 
   const totalUsers = useMemo(() => departments.reduce((s, d) => s + d.userCount, 0), [departments])
+
+  const regionCounts = useMemo(() => ({
+    north: departments.filter(d => (d.region ?? 'Miền Bắc') === 'Miền Bắc').length,
+    south: departments.filter(d => d.region === 'Miền Nam').length,
+  }), [departments])
 
   function handleSaved(saved: Department) {
     setDepartments(prev => {
@@ -197,6 +217,32 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
         </div>
       </div>
 
+      {/* ── Region scorecards / filter ── */}
+      <div className="da-region-cards">
+        <button
+          className={`da-region-card da-region-card--north${regionFilter === 'Miền Bắc' ? ' da-region-card--active' : ''}`}
+          onClick={() => setRegionFilter(f => f === 'Miền Bắc' ? 'all' : 'Miền Bắc')}
+        >
+          <span className="da-region-dot da-region-dot--north" />
+          <div className="da-region-info">
+            <span className="da-region-name">Miền Bắc</span>
+            <span className="da-region-sub">{regionCounts.north} phòng ban</span>
+          </div>
+          <span className="da-region-total da-region-total--north">{regionCounts.north}</span>
+        </button>
+        <button
+          className={`da-region-card da-region-card--south${regionFilter === 'Miền Nam' ? ' da-region-card--active' : ''}`}
+          onClick={() => setRegionFilter(f => f === 'Miền Nam' ? 'all' : 'Miền Nam')}
+        >
+          <span className="da-region-dot da-region-dot--south" />
+          <div className="da-region-info">
+            <span className="da-region-name">Miền Nam</span>
+            <span className="da-region-sub">{regionCounts.south} phòng ban</span>
+          </div>
+          <span className="da-region-total da-region-total--south">{regionCounts.south}</span>
+        </button>
+      </div>
+
       {/* ── Toolbar ── */}
       <div className="da-toolbar">
         <div className="da-search-wrap">
@@ -222,7 +268,7 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
       {/* ── Grid ── */}
       {filtered.length === 0 ? (
         <div className="da-empty">
-          {search ? 'Không tìm thấy phòng ban phù hợp.' : 'Chưa có phòng ban nào.'}
+          {search || regionFilter !== 'all' ? 'Không tìm thấy phòng ban phù hợp.' : 'Chưa có phòng ban nào.'}
         </div>
       ) : (
         <div className="da-grid">
@@ -260,8 +306,9 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
 
               <div className="da-dept-footer">
                 <Users size={11} className="da-dept-users-icon" />
-                <span className="da-dept-users">
-                  {d.userCount} tài khoản
+                <span className="da-dept-users">{d.userCount} tài khoản</span>
+                <span className={`da-dept-region da-dept-region--${(d.region ?? 'Miền Bắc') === 'Miền Bắc' ? 'north' : 'south'}`}>
+                  {d.region ?? 'Miền Bắc'}
                 </span>
               </div>
             </div>
@@ -269,7 +316,7 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
         </div>
       )}
 
-      {filtered.length > 0 && departments.length !== filtered.length && (
+      {filtered.length > 0 && (search || regionFilter !== 'all') && (
         <p className="da-count">Hiển thị {filtered.length} / {departments.length} phòng ban</p>
       )}
 
@@ -394,6 +441,43 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
         }
         .da-count { font-size: 11px; color: rgba(255,255,255,0.2); font-style: italic; text-align: right; margin-top: -4px; }
 
+        /* ── Region scorecards ── */
+        .da-region-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .da-region-card {
+          display: flex; align-items: center; gap: 12px;
+          padding: 12px 16px; border-radius: 12px;
+          background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+          cursor: pointer; text-align: left; font-family: inherit;
+          transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        }
+        .da-region-card:hover { background: rgba(255,255,255,0.04); }
+        .da-region-card--north { border-color: rgba(99,179,237,0.15); background: rgba(99,179,237,0.03); }
+        .da-region-card--south { border-color: rgba(251,191,36,0.15); background: rgba(251,191,36,0.03); }
+        .da-region-card--north.da-region-card--active { border-color: rgba(99,179,237,0.5); background: rgba(99,179,237,0.08); box-shadow: 0 0 0 1px rgba(99,179,237,0.2); }
+        .da-region-card--south.da-region-card--active { border-color: rgba(251,191,36,0.5); background: rgba(251,191,36,0.08); box-shadow: 0 0 0 1px rgba(251,191,36,0.2); }
+        .da-region-dot {
+          width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+        }
+        .da-region-dot--north { background: #63b3ed; box-shadow: 0 0 6px rgba(99,179,237,0.5); }
+        .da-region-dot--south { background: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.5); }
+        .da-region-info { display: flex; flex-direction: column; flex: 1; gap: 1px; }
+        .da-region-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.65); }
+        .da-region-sub { font-size: 10px; color: rgba(255,255,255,0.25); }
+        .da-region-total { font-size: 24px; font-weight: 300; letter-spacing: -0.03em; line-height: 1; }
+        .da-region-total--north { color: #63b3ed; }
+        .da-region-total--south { color: #fbbf24; }
+
+        /* ── Dept region badge ── */
+        .da-dept-footer { justify-content: flex-start; }
+        .da-dept-region {
+          margin-left: auto;
+          display: inline-flex; align-items: center;
+          padding: 1px 7px; border-radius: 20px; font-size: 10px; font-weight: 500;
+          border: 1px solid transparent;
+        }
+        .da-dept-region--north { background: rgba(99,179,237,0.08); color: #63b3ed; border-color: rgba(99,179,237,0.18); }
+        .da-dept-region--south { background: rgba(251,191,36,0.08); color: #fbbf24; border-color: rgba(251,191,36,0.2); }
+
         /* ── Modal ── */
         .dm-overlay {
           position: fixed; inset: 0; z-index: 100;
@@ -427,6 +511,7 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
         .dm-close:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.05); }
 
         .dm-form { display: flex; flex-direction: column; gap: 14px; padding: 20px; }
+        .dm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .dm-field { display: flex; flex-direction: column; gap: 5px; }
         .dm-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.35); }
         .dm-req { color: #B30000; }
@@ -440,6 +525,7 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
         .dm-input:focus { border-color: rgba(179,0,0,0.5); }
         .dm-input::placeholder { color: rgba(255,255,255,0.2); }
         .dm-input--code { font-family: monospace; letter-spacing: 0.08em; }
+        select.dm-input option { background: #141414; color: rgba(255,255,255,0.8); }
         .dm-error {
           padding: 8px 12px; border-radius: 8px;
           background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
@@ -502,6 +588,17 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
         [data-theme="light"] .dm-actions { border-top-color: rgba(0,0,0,0.06); }
         [data-theme="light"] .dm-btn--ghost { background: #f5f5f5; color: rgba(0,0,0,0.55); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .dm-btn--ghost:hover:not(:disabled) { background: #ebebeb; color: rgba(0,0,0,0.75); }
+        [data-theme="light"] select.dm-input option { background: #fff; color: #1a1a1a; }
+
+        [data-theme="light"] .da-region-card { background: #fff; border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .da-region-card--north { background: rgba(99,179,237,0.04); border-color: rgba(99,179,237,0.18); }
+        [data-theme="light"] .da-region-card--south { background: rgba(180,83,9,0.04); border-color: rgba(180,83,9,0.15); }
+        [data-theme="light"] .da-region-name { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .da-region-sub { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .da-region-total--north { color: #1d6fa8; }
+        [data-theme="light"] .da-region-total--south { color: #b45309; }
+        [data-theme="light"] .da-dept-region--north { background: rgba(29,111,168,0.08); color: #1d6fa8; border-color: rgba(29,111,168,0.18); }
+        [data-theme="light"] .da-dept-region--south { background: rgba(180,83,9,0.08); color: #b45309; border-color: rgba(180,83,9,0.18); }
       `}</style>
     </div>
 

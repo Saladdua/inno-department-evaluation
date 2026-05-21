@@ -83,14 +83,42 @@ function matchDeptByCode(rawCode: string, departments: Department[]): Department
   if (exact) return exact
   if (nc.endsWith('1') && nc.length > 1) {
     const base = nc.slice(0, -1)
-    return departments.find(d => normaliseCode(d.code) === base)
+    const baseMatch = departments.find(d => normaliseCode(d.code) === base)
+    if (baseMatch) return baseMatch
   }
-  return undefined
+  return matchDeptByAlias(rawCode, departments)
 }
 
 /* Strip common Vietnamese org-unit prefixes: "Phòng", "Ban", "Xưởng", "Khối" */
 function stripDeptPrefix(s: string) {
   return s.replace(/^(ph[oò]ng|ban|xu[oô]ng|kh[oô]i)\s+/iu, '').trim()
+}
+
+/* ─── Keyword / alias table ─────────────────────────────────
+   Maps alternative names/codes that may appear in source files to the
+   registered dept code. Add new entries here when a file uses a name
+   that the generic matching cannot resolve automatically.
+   Alias strings are matched with normalise() so diacritics / spaces are ignored. */
+const DEPT_ALIASES: Array<{ aliases: string[]; code: string }> = [
+  // ── Miền Nam departments ──────────────────────────────────
+  { code: 'AS5',  aliases: ['as-5', 'as_5', 'as 5', 'as5mn', 'as nam 5', 'as mien nam 5', 'as5 mien nam'] },
+  { code: 'AS6',  aliases: ['as-6', 'as_6', 'as 6', 'as6mn', 'as nam 6', 'as mien nam 6', 'as6 mien nam'] },
+  { code: 'MEP2', aliases: ['mep-2', 'mep_2', 'mep 2', 'mep2mn', 'mep mn', 'mep mien nam', 'mep mien nam 2', 'mep nam 2'] },
+  { code: 'SS4',  aliases: ['ss-4', 'ss_4', 'ss 4', 'ss4mn', 'ss nam 4', 'ss mien nam 4'] },
+  { code: 'IN1',  aliases: ['in-1', 'in_1', 'in 1', 'in1mn', 'in nam 1', 'in mien nam 1', 'innm1'] },
+  { code: 'IN2',  aliases: ['in-2', 'in_2', 'in 2', 'in2mn', 'in nam 2', 'in mien nam 2', 'innm2'] },
+  { code: 'UB3',  aliases: ['ub-3', 'ub_3', 'ub 3', 'ub3mn', 'ub nam 3', 'ub mien nam 3'] },
+  { code: 'UB4',  aliases: ['ub-4', 'ub_4', 'ub 4', 'ub4mn', 'ub nam 4', 'ub mien nam 4'] },
+]
+
+function matchDeptByAlias(raw: string, departments: Department[]): Department | undefined {
+  const nk = normalise(raw)
+  for (const entry of DEPT_ALIASES) {
+    if (entry.aliases.some(a => normalise(a) === nk)) {
+      return departments.find(d => d.code === entry.code)
+    }
+  }
+  return undefined
 }
 
 /* ─── Timesheet helpers ─────────────────────────────────────── */
@@ -130,7 +158,7 @@ function normKey(s: string) {
 function matchDeptTS(name: string, departments: Department[]): Department | undefined {
   const nk  = normKey(name)
   const nks = normKey(stripDeptPrefix(name))
-  return departments.find(d => {
+  const found = departments.find(d => {
     const dn = normKey(d.name)
     const dc = normKey(d.code)
     const ds = normKey(stripDeptPrefix(d.name))
@@ -142,6 +170,7 @@ function matchDeptTS(name: string, departments: Department[]): Department | unde
       (nks.length > 3 && (ds.endsWith(nks) || nks.endsWith(ds)))
     )
   })
+  return found ?? matchDeptByAlias(name, departments) ?? matchDeptByAlias(stripDeptPrefix(name), departments)
 }
 
 function numVal(row: SheetRow, idx: number): number {
@@ -311,181 +340,6 @@ function computeTimesheetScores(fileResults: TSFileResult[]): {
   return { scores, details }
 }
 
-// ── Debug: dump raw extraction from one Bang-cham-cong file ──────────────
-function debugTimesheetFile(rows: SheetRow[], departments: Department[]): string {
-  const out: string[] = []
-
-  if (rows.length < 4) return 'File quá ngắn (< 4 dòng)'
-
-  // ── Column detection ──
-  const headerR1 = (rows[1] ?? []).map(c => normalise(String(c ?? '')))
-  const colCC = headerR1.indexOf(normalise('Công chuẩn'))
-
-  const rawRow3 = rows[2] ?? []
-  let dailyStart = -1
-  let dailyCount = 0
-  for (let c = 0; c < rawRow3.length; c++) {
-    if (/^\d{1,2}\/\d{1,2}$/.test(String(rawRow3[c] ?? '').trim())) {
-      if (dailyStart < 0) dailyStart = c
-      dailyCount++
-    } else if (dailyCount > 0) break
-  }
-  const monthDays = dailyCount > 0 ? dailyCount : 31
-  // Công lễ column: BU (index 72) for 31-day months, BR (index 69) for February (28 days)
-  const colCL = monthDays === 28 ? 69 : 72
-
-  const headerR3norm = rawRow3.map(c => normalise(String(c ?? '')))
-  const colLTsMap = TS_LEAVE_TYPES.map(lt => ({ lt, idx: headerR3norm.indexOf(normalise(lt)) })).filter(x => x.idx >= 0)
-
-  // Excel column letter helper
-  const colLetter = (i: number) => {
-    let s = ''
-    for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s
-    return s
-  }
-
-  out.push('=== PHÁT HIỆN CỘT ===')
-  out.push(`Row 2 header (${headerR1.length} cột) — mẫu: ${headerR1.slice(0, 5).join(' | ')} ...`)
-  out.push(`Cột Công chuẩn: ${colCC >= 0 ? `index ${colCC} (${colLetter(colCC)})` : 'KHÔNG TÌM THẤY ⚠'}`)
-  out.push(`Cột Công lễ: index ${colCL} (${colLetter(colCL)}) — ${monthDays === 28 ? 'BR (tháng 2)' : 'BU (tháng 31 ngày)'}`)
-  out.push(`Ngày làm việc: ${monthDays} ngày, cột ${colLetter(dailyStart >= 0 ? dailyStart : 9)} → ${colLetter((dailyStart >= 0 ? dailyStart : 9) + monthDays - 1)}`)
-  out.push(`Cột nghỉ phép: ${colLTsMap.map(x => `${x.lt}=${colLetter(x.idx)}`).join('  ') || 'KHÔNG TÌM THẤY ⚠'}`)
-  out.push('')
-
-  // ── Dept + employee scan ──
-  out.push('=== PHÒNG BAN & NHÂN VIÊN ===')
-  let curDeptLabel = ''
-  let curDeptCode  = ''
-  let deptIdx      = 0
-  const deptTotals: Record<string, TSAccum & { empCount: number }> = {}
-
-  const flushDept = () => {
-    if (!curDeptCode || !deptTotals[curDeptCode]) return
-    const t = deptTotals[curDeptCode]
-    out.push(`  → Tổng phòng (${t.empCount} NV): Chuẩn=${t.congChuan}  Lễ=${t.congLe}  Nghỉ=${t.congNghi}`)
-  }
-
-  for (let i = 3; i < rows.length; i++) {
-    const row = rows[i] ?? []
-    const c0  = String(row[0] ?? '').trim()
-    const c2  = String(row[2] ?? '').trim()
-
-    if (!c0 && !c2) continue
-
-    if (c0 && !c2) {
-      flushDept()
-      deptIdx++
-      const deptName = extractDeptName(c0)
-      const dept     = matchDeptTS(deptName, departments)
-      curDeptLabel   = deptName
-      curDeptCode    = dept?.code ?? ''
-      out.push('')
-      if (dept) {
-        out.push(`[${deptIdx}] "${c0}"`)
-        out.push(`     → extractDeptName: "${deptName}"  KHỚP: ${dept.code} (${dept.name})`)
-        if (!deptTotals[dept.code]) deptTotals[dept.code] = { congChuan: 0, congLe: 0, congNghi: 0, tongGio: 0, empCount: 0 }
-      } else {
-        out.push(`[${deptIdx}] "${c0}"`)
-        out.push(`     → extractDeptName: "${deptName}"  KHÔNG KHỚP ⚠`)
-      }
-      continue
-    }
-
-    if (!curDeptCode || !c2) continue
-
-    const congChuan = numVal(row, colCC)
-    const congLe    = numVal(row, colCL)
-    const congNghi  = colLTsMap.reduce((s, x) => s + numVal(row, x.idx), 0)
-
-    out.push(`     NV ${c2}: Chuẩn=${congChuan}  Lễ=${congLe} (col ${colLetter(colCL)})  Nghỉ=${congNghi}`)
-
-    const t = deptTotals[curDeptCode]
-    t.congChuan += congChuan
-    t.congLe    += congLe
-    t.congNghi  += congNghi
-    t.empCount  += 1
-  }
-  flushDept()
-
-  if (!curDeptLabel) out.push('Không tìm thấy dòng phòng ban nào ⚠')
-
-  return out.join('\n')
-}
-
-/* ─── DebugBox ──────────────────────────────────────────────── */
-
-function DebugBox({ departments }: { departments: Department[] }) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [fileName, setFileName] = useState('')
-  const [file, setFile]         = useState<File | null>(null)
-  const [output, setOutput]     = useState('')
-  const [busy, setBusy]         = useState(false)
-
-  const run = async () => {
-    if (!file) return
-    setBusy(true)
-    try {
-      const rows = await readWorkbookRaw(file)
-      setOutput(debugTimesheetFile(rows, departments))
-    } catch (e) {
-      setOutput(`Lỗi: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="dp-box" style={{ borderColor: 'rgba(234,179,8,0.25)', background: 'rgba(234,179,8,0.03)' }}>
-      <div className="dp-box-header">
-        <FileSpreadsheet size={16} style={{ color: '#eab308' }} />
-        <span className="dp-box-title" style={{ color: 'rgba(234,179,8,0.85)' }}>Kiểm tra cấu trúc Bang-cham-cong</span>
-        <span style={{ fontSize: 11, color: 'rgba(234,179,8,0.5)', fontStyle: 'italic' }}>tạm thời</span>
-      </div>
-
-      <div
-        className={`dp-dropzone ${fileName ? 'dp-dropzone--loaded' : ''}`}
-        style={{ borderColor: 'rgba(234,179,8,0.2)' }}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => {
-          e.preventDefault()
-          const f = e.dataTransfer.files[0]
-          if (f) { setFile(f); setFileName(f.name); setOutput('') }
-        }}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          style={{ display: 'none' }}
-          onChange={e => {
-            const f = e.target.files?.[0]
-            if (f) { setFile(f); setFileName(f.name); setOutput('') }
-            e.target.value = ''
-          }}
-        />
-        <Upload size={20} className="dp-dropzone-icon" />
-        {fileName
-          ? <span className="dp-dropzone-label dp-dropzone-label--loaded">{fileName}</span>
-          : <><span className="dp-dropzone-label">Chọn 1 file Bang-cham-cong</span><span className="dp-dropzone-hint">.xlsx · .xls</span></>
-        }
-      </div>
-
-      <button className="dp-process-btn" style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308' }} disabled={!file || busy} onClick={run}>
-        <Play size={13} />
-        {busy ? 'Đang phân tích…' : 'Phân tích cấu trúc'}
-      </button>
-
-      {output && (
-        <div className="dp-output-wrap">
-          <label className="dp-output-label">Cấu trúc thô</label>
-          <textarea className="dp-output" readOnly value={output} style={{ minHeight: 320, fontSize: 11, fontFamily: 'monospace' }} />
-        </div>
-      )}
-    </div>
-  )
-}
-
 const COL_DEPT   = 'Tên phòng ban'
 const COL_NGHI   = 'Số công nghỉ không lý do'
 const COL_VI_PHAM = 'Tổng số lần vi phạm đi muộn về sớm'
@@ -529,13 +383,16 @@ function processFile(rows: Row[], departments: Department[]): FileResult {
 
     const rawName  = String(row[keyDept!] ?? '').trim()
     const stripped = stripDeptPrefix(rawName)
+    // Extract code embedded in parentheses, e.g. "Phòng cảnh quan 1 (LS1)" → "LS1"
+    const parenCode = rawName.match(/\(([^)]+)\)\s*$/)?.[1]?.trim() ?? null
     // Try 4 match strategies: raw vs code, raw vs name, stripped vs code, stripped vs name
     const dept = departments.find(d =>
       normalise(d.code) === normalise(rawName)    ||
       normalise(d.name) === normalise(rawName)    ||
       normalise(d.code) === normalise(stripped)   ||
       normalise(d.name) === normalise(stripped),
-    )
+    ) ?? matchDeptByCode(rawName, departments) ?? matchDeptByCode(stripped, departments)
+      ?? (parenCode ? matchDeptByCode(parenCode, departments) : undefined)
     if (!dept) continue
     if (!byDept.has(dept.code)) byDept.set(dept.code, [])
     byDept.get(dept.code)!.push(row)
@@ -1418,7 +1275,6 @@ export default function DataProcessingClient({
           onProcess={handleDaoTaoProcess}
           onApply={() => daoTao.result && handleApply('dao_tao', daoTao.result, setDaoTao)}
         />
-        <DebugBox departments={departments} />
       </div>
 
       <style>{`

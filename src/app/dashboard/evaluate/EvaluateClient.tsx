@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
-import { CheckCircle2, Clock, Circle, ChevronRight, Send, Save } from 'lucide-react'
+import { CheckCircle2, Clock, Circle, ChevronRight, Send, Pencil } from 'lucide-react'
 
 export interface Criterion {
   id: string
@@ -17,6 +17,7 @@ export interface Department {
   id: string
   name: string
   code: string | null
+  region?: string | null
 }
 
 export interface MatrixEntry {
@@ -49,6 +50,7 @@ interface DraftScore {
 interface Props {
   periodId: string
   periodLabel: string
+  periodStatus: 'draft' | 'open' | 'closed'
   criteria: Criterion[]
   depts: Department[]
   matrix: MatrixEntry[]
@@ -71,6 +73,7 @@ function getDeptLabel(depts: Department[], id: string) {
 export default function EvaluateClient({
   periodId,
   periodLabel,
+  periodStatus,
   criteria,
   depts,
   matrix,
@@ -82,11 +85,15 @@ export default function EvaluateClient({
 }: Props) {
   const canManageAll = role === 'super_admin' || role === 'leadership'
 
-  // Dept users and leaders see manual criteria; auto criteria are filled by data processing.
-  // 'leader' sub-type criteria are only visible to leadership/super_admin evaluators.
-  const displayCriteria = role === 'super_admin'
+  // All criteria are shown to everyone. scoreableCriteria determines which ones accept score input.
+  const displayCriteria = criteria
+  const scoreableCriteria = role === 'super_admin'
     ? criteria
     : criteria.filter(c => c.input_type !== 'auto' && (isLeader || c.auto_source !== 'leader'))
+
+  function canScoreCriterion(c: Criterion): boolean {
+    return scoreableCriteria.some(s => s.id === c.id)
+  }
 
   const evaluatorIds = useMemo(() => {
     return [...new Set(matrix.map(e => e.evaluator_id))]
@@ -109,6 +116,7 @@ export default function EvaluateClient({
   const [isPending, startTransition] = useTransition()
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [overMaxId, setOverMaxId] = useState<string | null>(null)
+  const [isEditingMode, setIsEditingMode] = useState(true)
 
   const evalByPair = useMemo(() => {
     const map: Record<string, EvaluationRow> = {}
@@ -145,6 +153,8 @@ export default function EvaluateClient({
     setSelectedTargetId(targetId)
     setDraftScores(buildDraftFromEval(selectedEvaluatorId, targetId))
     setSaveStatus('idle')
+    const ev = getEval(selectedEvaluatorId, targetId)
+    setIsEditingMode(ev?.status !== 'submitted')
   }
 
   function handleScoreChange(criteriaId: string, field: 'raw_score' | 'note', value: string) {
@@ -177,32 +187,32 @@ export default function EvaluateClient({
   }
 
   const totalScore = useMemo(() => {
-    const totalWeight = displayCriteria.reduce((sum, c) => sum + Number(c.weight), 0)
-    const weightedSum = displayCriteria.reduce((sum, c) => {
+    const totalWeight = scoreableCriteria.reduce((sum, c) => sum + Number(c.weight), 0)
+    const weightedSum = scoreableCriteria.reduce((sum, c) => {
       const raw = parseFloat(draftScores[c.id]?.raw_score ?? '')
       return isNaN(raw) ? sum : sum + raw * Number(c.weight)
     }, 0)
     return totalWeight > 0 ? weightedSum / totalWeight : 0
-  }, [draftScores, displayCriteria])
+  }, [draftScores, scoreableCriteria])
 
   const allScored = useMemo(() => {
-    return displayCriteria.length > 0 && displayCriteria.every(c => {
+    return scoreableCriteria.length > 0 && scoreableCriteria.every(c => {
       const v = draftScores[c.id]?.raw_score ?? ''
       if (v === '') return false
       const n = parseFloat(v)
       return !isNaN(n) && n >= 1 && n <= 100
     })
-  }, [draftScores, displayCriteria])
+  }, [draftScores, scoreableCriteria])
 
   const hasAnyScore = useMemo(() => {
-    return displayCriteria.some(c => {
+    return scoreableCriteria.some(c => {
       const v = draftScores[c.id]?.raw_score ?? ''
       return v !== '' && !isNaN(parseFloat(v))
     })
-  }, [draftScores, displayCriteria])
+  }, [draftScores, scoreableCriteria])
 
   function buildPayload() {
-    return displayCriteria.map(c => ({
+    return scoreableCriteria.map(c => ({
       criteria_id: c.id,
       raw_score: draftScores[c.id]?.raw_score ? parseFloat(draftScores[c.id].raw_score) : null,
       note: draftScores[c.id]?.note || null,
@@ -258,6 +268,7 @@ export default function EvaluateClient({
         }))
 
         setSaveStatus('saved')
+        if (submit) setIsEditingMode(false)
       } catch {
         setSaveStatus('error')
       }
@@ -266,7 +277,7 @@ export default function EvaluateClient({
 
   const selectedEval = selectedTargetId ? getEval(selectedEvaluatorId, selectedTargetId) : null
   const isSubmitted = selectedEval?.status === 'submitted'
-  const canEdit = role === 'super_admin' || !isSubmitted
+  const canEdit = role === 'super_admin' || periodStatus !== 'closed'
 
   // Empty states
   if (matrix.length === 0) {
@@ -277,11 +288,11 @@ export default function EvaluateClient({
       </div>
     )
   }
-  if (displayCriteria.length === 0) {
+  if (scoreableCriteria.length === 0 && criteria.length === 0) {
     return (
       <div className="ev-empty">
         <Circle size={16} />
-        <span>Chưa có tiêu chí thủ công nào trong kỳ này.</span>
+        <span>Chưa có tiêu chí nào trong kỳ này.</span>
       </div>
     )
   }
@@ -420,38 +431,46 @@ export default function EvaluateClient({
                 <tbody>
                   {displayCriteria.map(c => {
                     const isAuto = c.input_type === 'auto'
+                    const scoreable = canScoreCriterion(c)
                     const draft = draftScores[c.id] ?? { raw_score: '', note: '' }
                     const rawVal = parseFloat(draft.raw_score)
                     const weighted = !isNaN(rawVal) ? rawVal * Number(c.weight) : null
-                    const isInvalid = !isAuto && draft.raw_score !== '' && (isNaN(rawVal) || rawVal < 1 || rawVal > 100)
+                    const isInvalid = scoreable && !isAuto && draft.raw_score !== '' && (isNaN(rawVal) || rawVal < 1 || rawVal > 100)
 
                     return (
-                      <tr key={c.id} className={`ev-tr ${isAuto ? 'ev-tr--auto' : ''}`}>
+                      <tr key={c.id} className={`ev-tr ${isAuto ? 'ev-tr--auto' : ''} ${!scoreable && !isAuto ? 'ev-tr--readonly' : ''}`}>
                         <td className="ev-td td-code">{c.code ?? '—'}</td>
                         <td className="ev-td td-name">
                           {c.name}
                           {isAuto && <span className="ev-auto-badge">Tự động</span>}
+                          {!scoreable && !isAuto && <span className="ev-na-badge">Không đánh giá</span>}
                         </td>
                         <td className="ev-td td-weight">×{Number(c.weight)}</td>
                         <td className="ev-td td-score" style={{ position: 'relative' }}>
-                          <input
-                            type="number"
-                            min="1"
-                            max="100"
-                            step="1"
-                            value={draft.raw_score}
-                            onChange={e => handleScoreChange(c.id, 'raw_score', e.target.value)}
-                            onBlur={e => handleScoreBlur(c.id, e.target.value)}
-                            disabled={isAuto || !canEdit || isPending}
-                            className={`ev-score-input ${isInvalid ? 'ev-score-input--invalid' : ''} ${isAuto ? 'ev-score-input--auto' : ''} ${overMaxId === c.id ? 'ev-score-input--over-max' : ''}`}
-                            placeholder="—"
-                          />
-                          {overMaxId === c.id && (
-                            <span className="ev-over-max-tip">Điểm phải từ 1–100</span>
+                          {scoreable ? (
+                            <>
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                step="1"
+                                value={draft.raw_score}
+                                onChange={e => handleScoreChange(c.id, 'raw_score', e.target.value)}
+                                onBlur={e => handleScoreBlur(c.id, e.target.value)}
+                                disabled={isAuto || !canEdit || isPending || !isEditingMode}
+                                className={`ev-score-input ${isInvalid ? 'ev-score-input--invalid' : ''} ${isAuto ? 'ev-score-input--auto' : ''} ${overMaxId === c.id ? 'ev-score-input--over-max' : ''}`}
+                                placeholder="—"
+                              />
+                              {overMaxId === c.id && (
+                                <span className="ev-over-max-tip">Điểm phải từ 1–100</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="ev-weighted-empty">—</span>
                           )}
                         </td>
                         <td className="ev-td td-weighted">
-                          {weighted != null
+                          {scoreable && weighted != null
                             ? <span className="ev-weighted-val">{weighted.toFixed(1)}</span>
                             : <span className="ev-weighted-empty">—</span>
                           }
@@ -483,23 +502,23 @@ export default function EvaluateClient({
                 </span>
                 <button
                   className="ev-btn ev-btn--ghost"
-                  onClick={() => save(false)}
-                  disabled={isPending}
+                  onClick={() => setIsEditingMode(true)}
+                  disabled={isEditingMode || isPending}
                 >
-                  <Save size={13} /> Lưu nháp
+                  <Pencil size={13} /> Chỉnh sửa
                 </button>
                 <button
                   className="ev-btn ev-btn--primary"
                   onClick={() => save(true)}
-                  disabled={isPending || !allScored}
-                  title={!allScored ? 'Nhập đầy đủ điểm (1–100) trước khi nộp' : undefined}
+                  disabled={isPending || !allScored || !isEditingMode}
+                  title={!isEditingMode ? 'Nhấn Chỉnh sửa để chỉnh lại' : !allScored ? 'Nhập đầy đủ điểm (1–100) trước khi nộp' : undefined}
                 >
                   <Send size={13} /> Nộp đánh giá
                 </button>
               </div>
             ) : (
               <div className="ev-read-only-msg">
-                Đánh giá đã được nộp. Liên hệ quản trị viên nếu cần chỉnh sửa.
+                Kỳ đánh giá đã kết thúc — không thể chỉnh sửa.
               </div>
             )}
 
@@ -803,6 +822,15 @@ export default function EvaluateClient({
         .ev-score-input::-webkit-inner-spin-button { opacity: 0.5; }
 
         .ev-tr--auto { background: rgba(251,191,36,0.02); }
+        .ev-tr--readonly { opacity: 0.55; }
+        .ev-na-badge {
+          display: inline-flex; align-items: center;
+          margin-left: 7px;
+          padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;
+          background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.35);
+          border: 1px solid rgba(255,255,255,0.1); letter-spacing: 0.04em;
+          vertical-align: middle;
+        }
         .ev-auto-badge {
           display: inline-flex; align-items: center;
           margin-left: 7px;

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, Archive } from 'lucide-react'
 import JSZip from 'jszip'
@@ -11,6 +11,7 @@ export interface DeptStat {
   id: string
   name: string
   code: string | null
+  region: string | null
   dueCount: number
   doneCount: number
   draftCount: number
@@ -25,6 +26,12 @@ export interface OverallStats {
   submittedCount: number
   draftCount: number
   notStartedCount: number
+}
+
+export interface LeaderStat {
+  submittedCount: number
+  draftCount: number
+  totalTasks: number
 }
 
 export interface PeriodOption {
@@ -43,6 +50,11 @@ interface Props {
   stats: DeptStat[]
   overall: OverallStats
   canManageAll: boolean
+  isSuperAdmin: boolean
+  leaderStatByRegion: Record<string, LeaderStat>
+  deptAvgScore?: number | null
+  deptMaxScore?: number
+  myRegion?: string | null
 }
 
 type Status = 'done' | 'in_progress' | 'not_started' | 'none'
@@ -219,19 +231,47 @@ export default function StatusClient({
   stats,
   overall,
   canManageAll,
+  isSuperAdmin,
+  leaderStatByRegion,
+  deptAvgScore,
+  deptMaxScore = 0,
+  myRegion = null,
 }: Props) {
   const router = useRouter()
   const [localStatus, setLocalStatus] = useState(periodStatus)
   const [archiveStep, setArchiveStep] = useState<string | null>(null)
+  const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
+    (myRegion as 'Miền Bắc' | 'Miền Nam') ?? 'Miền Bắc'
+  )
+
+  useEffect(() => {
+    if (myRegion) return
+    const saved = localStorage.getItem('region_filter') as 'Miền Bắc' | 'Miền Nam' | null
+    if (saved === 'Miền Bắc' || saved === 'Miền Nam') setRegionFilter(saved)
+  }, [myRegion])
+
+  useEffect(() => {
+    if (myRegion) return
+    localStorage.setItem('region_filter', regionFilter)
+  }, [regionFilter, myRegion])
+
+  const displayStats = useMemo(
+    () => canManageAll ? stats.filter(s => (s.region ?? 'Miền Bắc') === regionFilter) : stats,
+    [stats, regionFilter, canManageAll]
+  )
 
   const completionRate = overall.totalTasks > 0
     ? (overall.submittedCount / overall.totalTasks) * 100
     : 0
 
-  const doneCount    = stats.filter(s => getStatus(s) === 'done').length
-  const activeCount  = stats.filter(s => getStatus(s) === 'in_progress').length
-  const pendingCount = stats.filter(s => getStatus(s) === 'not_started').length
+  const doneCount    = displayStats.filter(s => getStatus(s) === 'done').length
+  const activeCount  = displayStats.filter(s => getStatus(s) === 'in_progress').length
+  const pendingCount = displayStats.filter(s => getStatus(s) === 'not_started').length
   const myStats = stats.find(s => s.isMyDept)
+
+  // Pick the leader stat for the currently visible region
+  const activeRegion = canManageAll ? regionFilter : (myStats?.region ?? 'Miền Bắc')
+  const leaderStat: LeaderStat = leaderStatByRegion[activeRegion] ?? { submittedCount: 0, draftCount: 0, totalTasks: 0 }
 
   const isOverdue = localStatus === 'open' && endDate && new Date(endDate) < new Date()
 
@@ -321,12 +361,26 @@ export default function StatusClient({
           {isOverdue && (
             <span className="st-overdue-badge">Quá hạn</span>
           )}
+
+          {canManageAll && (
+            <div className="st-region-tabs">
+              {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
+                <button
+                  key={r}
+                  className={`st-region-tab ${regionFilter === r ? 'st-region-tab--active' : ''}`}
+                  onClick={() => setRegionFilter(r)}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="st-topbar-right">
           <span className="st-rate">{completionRate.toFixed(0)}% hoàn thành</span>
 
-          {canManageAll && localStatus !== 'closed' && (
+          {canManageAll && isSuperAdmin && localStatus !== 'closed' && (
             <button
               className="st-finalize-btn"
               onClick={handleArchivePeriod}
@@ -355,26 +409,6 @@ export default function StatusClient({
             left: `${completionRate}%`,
           }}
         />
-      </div>
-
-      {/* ── Stat cards ── */}
-      <div className="st-cards">
-        <div className="st-card">
-          <span className="st-card-value">{overall.totalTasks}</span>
-          <span className="st-card-label">Tổng đánh giá</span>
-        </div>
-        <div className="st-card st-card--green">
-          <span className="st-card-value">{overall.submittedCount}</span>
-          <span className="st-card-label">Đã nộp</span>
-        </div>
-        <div className="st-card st-card--amber">
-          <span className="st-card-value">{overall.draftCount}</span>
-          <span className="st-card-label">Đang làm</span>
-        </div>
-        <div className="st-card st-card--muted">
-          <span className="st-card-value">{overall.notStartedCount}</span>
-          <span className="st-card-label">Chưa bắt đầu</span>
-        </div>
       </div>
 
       {/* ── My status (dept user) ── */}
@@ -417,6 +451,27 @@ export default function StatusClient({
         </div>
       )}
 
+      {/* ── Avg score (dept user) ── */}
+      {!canManageAll && (
+        <div className="st-avg-card">
+          <div className="st-avg-label">Điểm trung bình được đánh giá</div>
+          <div className="st-avg-score-row">
+            <span className="st-avg-num">
+              {deptAvgScore != null ? deptAvgScore.toFixed(1) : '—'}
+            </span>
+            <span className="st-avg-max"> / 100</span>
+          </div>
+          {deptAvgScore != null && (
+            <div className="st-avg-pct">
+              {deptAvgScore.toFixed(1)}% điểm tối đa
+            </div>
+          )}
+          {deptAvgScore == null && (
+            <div className="st-avg-empty">Chưa có đánh giá nào được nộp cho phòng bạn.</div>
+          )}
+        </div>
+      )}
+
       {/* ── Dept summary pills (admin/leadership) ── */}
       {canManageAll && (
         <div className="st-dept-pills">
@@ -433,7 +488,7 @@ export default function StatusClient({
             <span className="st-pill-lbl">chưa bắt đầu</span>
           </div>
           <span className="st-pill-sep">·</span>
-          <span className="st-pill-note">{stats.length} phòng ban</span>
+          <span className="st-pill-note">{displayStats.length} phòng ban</span>
         </div>
       )}
 
@@ -444,17 +499,47 @@ export default function StatusClient({
             <tr>
               <th className="st-th th-dept">Phòng ban</th>
               <th className="st-th th-progress">Tiến độ nộp</th>
-              <th className="st-th th-incoming">Được đánh giá</th>
               <th className="st-th th-status">Tình trạng</th>
               {canManageAll && <th className="st-th th-pending">Còn chờ nộp</th>}
             </tr>
           </thead>
           <tbody>
-            {stats.map(s => {
+            {/* ── Leader row (visible to all roles) ── */}
+            {leaderStat.totalTasks > 0 && (() => {
+              const lPct      = leaderStat.totalTasks > 0 ? (leaderStat.submittedCount / leaderStat.totalTasks) * 100 : 0
+              const lDraftPct = leaderStat.totalTasks > 0 ? (leaderStat.draftCount / leaderStat.totalTasks) * 100 : 0
+              const lStatus: Status = leaderStat.submittedCount === leaderStat.totalTasks ? 'done'
+                : leaderStat.submittedCount > 0 || leaderStat.draftCount > 0 ? 'in_progress'
+                : 'not_started'
+              return (
+                <tr className="st-tr st-tr--leader">
+                  <td className="st-td td-dept">
+                    <span className="st-dept-code st-dept-code--leader">Ban lãnh đạo</span>
+                  </td>
+                  <td className="st-td td-progress">
+                    <div className="st-prog-wrap">
+                      <div className="st-prog-track">
+                        <div className="st-prog-fill" style={{ width: `${lPct}%` }} />
+                        <div className="st-prog-draft" style={{ width: `${lDraftPct}%`, left: `${lPct}%` }} />
+                      </div>
+                      <span className="st-prog-nums">
+                        <span className={`st-prog-done ${lStatus === 'done' ? 'st-prog-done--full' : ''}`}>{leaderStat.submittedCount}</span>
+                        <span className="st-prog-total">/{leaderStat.totalTasks}</span>
+                      </span>
+                    </div>
+                  </td>
+                  <td className="st-td td-status">
+                    <span className={`st-badge st-badge--${lStatus}`}>{STATUS_LABEL[lStatus]}</span>
+                  </td>
+                  {canManageAll && <td className="st-td td-pending"><span className="st-pending-none">—</span></td>}
+                </tr>
+              )
+            })()}
+
+            {displayStats.map(s => {
               const status = getStatus(s)
               const pct = s.dueCount > 0 ? (s.doneCount / s.dueCount) * 100 : 0
               const draftPct = s.dueCount > 0 ? (s.draftCount / s.dueCount) * 100 : 0
-              const inPct = s.incomingTotal > 0 ? (s.incomingDone / s.incomingTotal) * 100 : 0
 
               return (
                 <tr key={s.id} className={`st-tr ${s.isMyDept ? 'st-tr--mine' : ''}`}>
@@ -474,18 +559,6 @@ export default function StatusClient({
                       <span className="st-prog-nums">
                         <span className={`st-prog-done ${status === 'done' ? 'st-prog-done--full' : ''}`}>{s.doneCount}</span>
                         <span className="st-prog-total">/{s.dueCount}</span>
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="st-td td-incoming">
-                    <div className="st-incoming-wrap">
-                      <div className="st-in-track">
-                        <div className="st-in-fill" style={{ width: `${inPct}%` }} />
-                      </div>
-                      <span className="st-in-nums">
-                        <span className="st-in-done">{s.incomingDone}</span>
-                        <span className="st-in-total">/{s.incomingTotal}</span>
                       </span>
                     </div>
                   </td>
@@ -592,6 +665,22 @@ export default function StatusClient({
           color: rgba(255,255,255,0.35);
         }
 
+        /* ── Region tabs ── */
+        .st-region-tabs { display: flex; gap: 2px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 3px; }
+        .st-region-tab {
+          padding: 4px 12px; border-radius: 6px; border: none; cursor: pointer;
+          font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+          background: transparent; color: rgba(255,255,255,0.35);
+          font-family: var(--font-sans), sans-serif;
+          transition: background 0.15s, color 0.15s;
+        }
+        .st-region-tab:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.06); }
+        .st-region-tab--active { background: #B30000; color: #fff; box-shadow: 0 2px 8px rgba(179,0,0,0.35); }
+        [data-theme="light"] .st-region-tabs { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .st-region-tab { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .st-region-tab:hover { color: rgba(0,0,0,0.65); background: rgba(0,0,0,0.06); }
+        [data-theme="light"] .st-region-tab--active { background: #B30000; color: #fff; }
+
         /* ── Main progress bar ── */
         .st-progress-track {
           height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px;
@@ -679,6 +768,9 @@ export default function StatusClient({
         .st-tr:last-child { border-bottom: none; }
         .st-tr--mine { background: rgba(179,0,0,0.04); }
         .st-tr--mine:hover { background: rgba(179,0,0,0.07); }
+        .st-tr--leader { background: rgba(251,191,36,0.03); border-bottom: 2px solid rgba(255,255,255,0.06); }
+        .st-tr--leader:hover { background: rgba(251,191,36,0.06); }
+        .st-dept-code--leader { color: rgba(251,191,36,0.8); font-style: italic; }
         .st-td { padding: 11px 16px; vertical-align: middle; }
 
         .td-dept { white-space: nowrap; }
@@ -743,6 +835,27 @@ export default function StatusClient({
           .st-topbar { flex-wrap: wrap; }
         }
 
+        /* ── Avg score card (dept) ── */
+        .st-avg-card {
+          padding: 20px 24px; border-radius: 12px;
+          background: rgba(179,0,0,0.04); border: 1px solid rgba(179,0,0,0.12);
+          display: flex; flex-direction: column; gap: 8px;
+        }
+        .st-avg-label {
+          font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+          text-transform: uppercase; color: rgba(255,255,255,0.3);
+        }
+        .st-avg-score-row { display: flex; align-items: baseline; gap: 4px; }
+        .st-avg-num { font-size: 48px; font-weight: 200; letter-spacing: -0.04em; color: #B30000; line-height: 1; }
+        .st-avg-max { font-size: 18px; font-weight: 300; color: rgba(255,255,255,0.2); }
+        .st-avg-pct { font-size: 13px; color: rgba(255,255,255,0.35); }
+        .st-avg-empty { font-size: 12px; color: rgba(255,255,255,0.2); font-style: italic; }
+        [data-theme="light"] .st-avg-card { background: #fff; border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .st-avg-label { color: rgba(0,0,0,0.35); }
+        [data-theme="light"] .st-avg-max { color: rgba(0,0,0,0.25); }
+        [data-theme="light"] .st-avg-pct { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .st-avg-empty { color: rgba(0,0,0,0.3); }
+
         /* ── Light mode ── */
         [data-theme="light"] .st-period-label { color: rgba(0,0,0,0.7); }
         [data-theme="light"] .st-period-status { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.4); }
@@ -767,6 +880,8 @@ export default function StatusClient({
         [data-theme="light"] .st-tr { border-bottom-color: rgba(0,0,0,0.05); }
         [data-theme="light"] .st-tr:hover { background: rgba(0,0,0,0.02); }
         [data-theme="light"] .st-tr--mine { background: rgba(179,0,0,0.03); }
+        [data-theme="light"] .st-tr--leader { background: rgba(180,130,0,0.04); }
+        [data-theme="light"] .st-dept-code--leader { color: rgba(140,90,0,0.8); }
         [data-theme="light"] .st-dept-code { color: rgba(0,0,0,0.6); }
         [data-theme="light"] .st-prog-track,
         [data-theme="light"] .st-in-track { background: rgba(0,0,0,0.09); }

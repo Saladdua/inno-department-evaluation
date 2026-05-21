@@ -76,21 +76,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Kỳ đánh giá đã tổng kết, không thể chỉnh sửa.' }, { status: 403 })
   }
 
-  // Guard: dept users cannot overwrite a submitted evaluation
-  if (!canManageAll) {
-    const { data: existing } = await supabase
-      .from('evaluations')
-      .select('status')
-      .eq('period_id', period_id)
-      .eq('evaluator_id', evaluator_id)
-      .eq('target_id', target_id)
-      .maybeSingle()
-
-    if (existing?.status === 'submitted') {
-      return NextResponse.json({ error: 'Already submitted' }, { status: 409 })
-    }
-  }
-
   // Compute total_score: Σ(raw * weight) / Σ(weight)  →  0–100 scale
   let total_score: number | null = null
   if (submit && Array.isArray(scores)) {

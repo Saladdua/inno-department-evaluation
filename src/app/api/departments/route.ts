@@ -6,7 +6,7 @@ export async function GET() {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('departments')
-    .select('id, name, code')
+    .select('id, name, code, region')
     .order('name')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -20,14 +20,14 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json()
-  const { name, code } = body
+  const { name, code, region } = body
   if (!name?.trim()) return NextResponse.json({ error: 'Tên phòng ban là bắt buộc' }, { status: 400 })
 
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('departments')
-    .insert({ name: name.trim(), code: code?.trim() || null })
-    .select('id, name, code')
+    .insert({ name: name.trim(), code: code?.trim() || null, region: region || 'Miền Bắc' })
+    .select('id, name, code, region')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -41,16 +41,16 @@ export async function PUT(req: Request) {
   }
 
   const body = await req.json()
-  const { id, name, code } = body
+  const { id, name, code, region } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
   if (!name?.trim()) return NextResponse.json({ error: 'Tên phòng ban là bắt buộc' }, { status: 400 })
 
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('departments')
-    .update({ name: name.trim(), code: code?.trim() || null })
+    .update({ name: name.trim(), code: code?.trim() || null, region: region || 'Miền Bắc' })
     .eq('id', id)
-    .select('id, name, code')
+    .select('id, name, code, region')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -7,7 +7,7 @@ import { Bell, X, AlertTriangle, CheckCircle2, CalendarClock, CalendarCheck, Fla
 
 interface Notification {
   id: string
-  type: 'chosen_for_evaluation' | 'evaluation_submitted' | 'period_started' | 'period_ended' | 'report_submitted' | 'report_resolved'
+  type: 'chosen_for_evaluation' | 'evaluation_submitted' | 'period_started' | 'period_ended' | 'report_submitted' | 'report_resolved' | 'report_request'
   recipient_dept_id: string | null
   data: Record<string, string>
   is_read: boolean
@@ -31,6 +31,7 @@ function NotifIcon({ type }: { type: Notification['type'] }) {
   if (type === 'period_ended')          return <CalendarCheck size={14} />
   if (type === 'report_submitted')      return <Flag          size={14} />
   if (type === 'report_resolved')       return <ShieldCheck   size={14} />
+  if (type === 'report_request')        return <Flag          size={14} />
   return <Bell size={14} />
 }
 
@@ -56,6 +57,8 @@ function notifTitle(n: Notification): string {
       ? `Lựa chọn đánh giá của bạn đối với ${d.reporter_dept_name ?? 'một phòng ban'} đã bị gỡ`
       : `Báo cáo từ ${d.reporter_dept_name ?? 'một phòng ban'} về lựa chọn của bạn đã được đóng`
   }
+  if (n.type === 'report_request')
+    return `${d.reporter_dept_name ?? 'Phòng ban'} báo cáo về việc bạn chọn họ để đánh giá`
   return 'Thông báo'
 }
 
@@ -65,6 +68,7 @@ function notifHref(n: Notification): string | null {
   if (n.type === 'evaluation_submitted')  return '/dashboard/results'
   if (n.type === 'report_submitted')      return '/dashboard/reports'
   if (n.type === 'report_resolved')       return '/dashboard/matrix'
+  if (n.type === 'report_request')        return null
   if (n.type === 'period_started')        return '/dashboard/status'
   if (n.type === 'period_ended')          return '/dashboard/status'
   return null
@@ -84,8 +88,8 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
 
   const isAdmin = role === 'super_admin' || role === 'leadership'
   const visibleNotifications = isAdmin
-    ? notifications
-    : notifications.filter(n => n.type !== 'report_submitted' && n.type !== 'report_resolved')
+    ? notifications.filter(n => n.type !== 'report_request')
+    : notifications.filter(n => n.type !== 'report_submitted')
 
   const unreadCount = visibleNotifications.filter(n => !n.is_read).length
 
@@ -154,6 +158,25 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
     }
   }
 
+  async function respondToReport(notifId: string, action: 'accept' | 'reject') {
+    setReportStatus(s => ({ ...s, [notifId]: 'pending' }))
+    try {
+      const res = await fetch('/api/reports', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_id: notifId, action }),
+      })
+      if (res.ok) {
+        setReportStatus(s => ({ ...s, [notifId]: 'done' }))
+        markRead(notifId)
+      } else {
+        setReportStatus(s => ({ ...s, [notifId]: 'error' }))
+      }
+    } catch {
+      setReportStatus(s => ({ ...s, [notifId]: 'error' }))
+    }
+  }
+
   async function submitReport(notifId: string) {
     setReportStatus(s => ({ ...s, [notifId]: 'pending' }))
     try {
@@ -218,6 +241,33 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
                     {n.type === 'report_resolved'       && 'Xem ma trận →'}
                     {(n.type === 'period_started' || n.type === 'period_ended') && 'Xem tình trạng →'}
                   </span>
+                )}
+
+                {n.type === 'report_request' && deptId && (
+                  <div className="nb-report-wrap" onClick={e => e.stopPropagation()}>
+                    {reportStatus[n.id] === 'done' ? (
+                      <span className="nb-report-done">Đã phản hồi</span>
+                    ) : reportStatus[n.id] === 'error' ? (
+                      <span className="nb-report-error">Lỗi — thử lại</span>
+                    ) : (
+                      <div className="nb-report-actions">
+                        <button
+                          className="nb-btn nb-btn--accept"
+                          disabled={reportStatus[n.id] === 'pending'}
+                          onClick={() => respondToReport(n.id, 'accept')}
+                        >
+                          Chấp nhận
+                        </button>
+                        <button
+                          className="nb-btn nb-btn--ghost"
+                          disabled={reportStatus[n.id] === 'pending'}
+                          onClick={() => respondToReport(n.id, 'reject')}
+                        >
+                          Từ chối
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {n.type === 'chosen_for_evaluation' && deptId && (
@@ -321,6 +371,7 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
         .nb-icon--period_ended           { background: rgba(148,163,184,0.15); color: #94a3b8; }
         .nb-icon--report_submitted       { background: rgba(239,68,68,0.15); color: #ef4444; }
         .nb-icon--report_resolved        { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .nb-icon--report_request         { background: rgba(239,68,68,0.15); color: #ef4444; }
 
         .nb-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
         .nb-item-text { font-size: 12.5px; color: rgba(255,255,255,0.82); line-height: 1.4; margin: 0; font-family: var(--font-sans), sans-serif; }
@@ -358,6 +409,8 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
         .nb-btn--ghost:hover { background: rgba(255,255,255,0.12); }
         .nb-btn--report { background: rgba(255,165,0,0.1); color: rgba(255,165,0,0.85); border: 1px solid rgba(255,165,0,0.18); }
         .nb-btn--report:hover { background: rgba(255,165,0,0.18); color: #ffa500; }
+        .nb-btn--accept { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.25); }
+        .nb-btn--accept:hover:not(:disabled) { background: rgba(34,197,94,0.25); }
 
         [data-theme="light"] .nb-popup { background: #ffffff; border-color: rgba(0,0,0,0.12); box-shadow: 0 16px 48px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.1); }
         [data-theme="light"] .nb-popup-header { background: #ffffff; border-bottom-color: rgba(0,0,0,0.08); }

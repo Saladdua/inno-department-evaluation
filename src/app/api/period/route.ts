@@ -54,11 +54,15 @@ export async function POST(req: Request) {
 
   // Copy criteria from a previous period if requested
   if (body.copy_criteria_from) {
-    const { data: sourceCriteria } = await supabase
+    let copyQuery = supabase
       .from('criteria')
-      .select('code, name, weight, input_type, auto_source, display_order')
+      .select('code, name, notes, weight, input_type, auto_source, display_order, region')
       .eq('period_id', body.copy_criteria_from)
       .order('display_order')
+    if (body.copy_criteria_from_region) {
+      copyQuery = copyQuery.eq('region', body.copy_criteria_from_region) as typeof copyQuery
+    }
+    const { data: sourceCriteria } = await copyQuery
 
     if (sourceCriteria && sourceCriteria.length > 0) {
       await supabase.from('criteria').insert(
@@ -68,6 +72,33 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json(data, { status: 201 })
+}
+
+export async function DELETE(req: Request) {
+  const user = await getAuthUser(req)
+  if (!user || user.role !== 'super_admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+
+  const supabase = createServiceClient()
+
+  const { data: evals } = await supabase.from('evaluations').select('id').eq('period_id', id)
+  const evalIds = (evals ?? []).map(e => e.id)
+  if (evalIds.length > 0) {
+    await supabase.from('evaluation_scores').delete().in('evaluation_id', evalIds)
+  }
+  await supabase.from('evaluations').delete().eq('period_id', id)
+  await supabase.from('evaluation_matrix').delete().eq('period_id', id)
+  await supabase.from('criteria').delete().eq('period_id', id)
+  await supabase.from('matrix_commits').delete().eq('period_id', id)
+
+  const { error } = await supabase.from('evaluation_periods').delete().eq('id', id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }
 
 export async function PUT(req: Request) {

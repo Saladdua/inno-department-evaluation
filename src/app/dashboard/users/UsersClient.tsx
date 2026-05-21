@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
-import { UserPlus, Pencil, Trash2, X, Eye, EyeOff, Search, RefreshCw } from 'lucide-react'
+import { UserPlus, Pencil, Trash2, X, Search } from 'lucide-react'
 
 export interface Department {
   id: string
@@ -16,6 +15,7 @@ export interface AppUser {
   email: string
   role: 'super_admin' | 'leadership' | 'department'
   department_id: string | null
+  region: string | null
   departments: { id: string; name: string; code: string | null } | null
 }
 
@@ -30,12 +30,12 @@ type ModalMode = 'add' | 'edit'
 interface FormState {
   name: string
   email: string
-  password: string
   role: AppUser['role']
   department_id: string
+  region: string
 }
 
-const EMPTY_FORM: FormState = { name: '', email: '', password: '', role: 'department', department_id: '' }
+const EMPTY_FORM: FormState = { name: '', email: '', role: 'department', department_id: '', region: 'Miền Bắc' }
 
 function UserModal({
   mode,
@@ -52,10 +52,9 @@ function UserModal({
 }) {
   const [form, setForm] = useState<FormState>(() =>
     mode === 'edit' && user
-      ? { name: user.name, email: user.email, password: '', role: user.role, department_id: user.department_id ?? '' }
+      ? { name: user.name, email: user.email, role: user.role, department_id: user.department_id ?? '', region: user.region ?? 'Miền Bắc' }
       : EMPTY_FORM
   )
-  const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
   const [isPending, startTransition] = useTransition()
 
@@ -70,18 +69,14 @@ function UserModal({
       setError('Họ tên và email là bắt buộc.')
       return
     }
-    if (mode === 'add' && !form.password) {
-      setError('Mật khẩu là bắt buộc khi tạo tài khoản.')
-      return
-    }
     startTransition(async () => {
       const body: Record<string, unknown> = {
         name: form.name.trim(),
         email: form.email.trim().toLowerCase(),
         role: form.role,
         department_id: form.department_id || null,
+        region: form.region || 'Miền Bắc',
       }
-      if (form.password) body.password = form.password
       if (mode === 'edit' && user) body.id = user.id
 
       const res = await fetch('/api/users', {
@@ -129,32 +124,6 @@ function UserModal({
             />
           </div>
 
-          <div className="um-field">
-            <label className="um-label">
-              Mật khẩu {mode === 'edit' && <span className="um-hint">(để trống = giữ nguyên)</span>}
-              {mode === 'add' && <span className="um-req"> *</span>}
-            </label>
-            <div className="um-pwd-wrap">
-              <input
-                className="um-input um-input--pwd"
-                type={showPwd ? 'text' : 'password'}
-                value={form.password}
-                onChange={e => set('password', e.target.value)}
-                placeholder={mode === 'edit' ? '••••••••' : 'Nhập mật khẩu'}
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                className="um-pwd-toggle"
-                onClick={() => setShowPwd(v => !v)}
-                tabIndex={-1}
-                aria-label={showPwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-              >
-                {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
-
           <div className="um-row">
             <div className="um-field">
               <label className="um-label">Vai trò <span className="um-req">*</span></label>
@@ -165,22 +134,30 @@ function UserModal({
               </select>
             </div>
 
-            {needsDept && (
-              <div className="um-field">
-                <label className="um-label">Phòng ban</label>
-                <select
-                  className="um-input"
-                  value={form.department_id}
-                  onChange={e => set('department_id', e.target.value)}
-                >
-                  <option value="">— Không có —</option>
-                  {departments.map(d => (
-                    <option key={d.id} value={d.id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div className="um-field">
+              <label className="um-label">Cơ sở <span className="um-req">*</span></label>
+              <select className="um-input" value={form.region} onChange={e => set('region', e.target.value)}>
+                <option value="Miền Bắc">Miền Bắc</option>
+                <option value="Miền Nam">Miền Nam</option>
+              </select>
+            </div>
           </div>
+
+          {needsDept && (
+            <div className="um-field">
+              <label className="um-label">Phòng ban</label>
+              <select
+                className="um-input"
+                value={form.department_id}
+                onChange={e => set('department_id', e.target.value)}
+              >
+                <option value="">— Không có —</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {error && <div className="um-error">{error}</div>}
 
@@ -205,10 +182,10 @@ export default function UsersClient({
   initialUsers: AppUser[]
   departments: Department[]
 }) {
-  const router = useRouter()
   const [users, setUsers] = useState(initialUsers)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<AppUser['role'] | 'all'>('all')
+  const [regionFilter, setRegionFilter] = useState<'all' | 'Miền Bắc' | 'Miền Nam'>('all')
   const [modal, setModal] = useState<{ mode: ModalMode; user: AppUser | null } | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -216,15 +193,16 @@ export default function UsersClient({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return users.filter(u => {
-      const matchRole = roleFilter === 'all' || u.role === roleFilter
+      const matchRole   = roleFilter === 'all' || u.role === roleFilter
+      const matchRegion = regionFilter === 'all' || (u.region ?? 'Miền Bắc') === regionFilter
       const matchSearch = !q ||
         u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
         (u.departments?.name ?? '').toLowerCase().includes(q) ||
         (u.departments?.code ?? '').toLowerCase().includes(q)
-      return matchRole && matchSearch
+      return matchRole && matchRegion && matchSearch
     })
-  }, [users, search, roleFilter])
+  }, [users, search, roleFilter, regionFilter])
 
   const counts = useMemo(() => ({
     total: users.length,
@@ -232,6 +210,22 @@ export default function UsersClient({
     leadership:  users.filter(u => u.role === 'leadership').length,
     department:  users.filter(u => u.role === 'department').length,
   }), [users])
+
+  const regionCounts = useMemo(() => {
+    const relevant = users.filter(u => u.role === 'leadership' || u.role === 'department')
+    return {
+      north: {
+        total:      relevant.filter(u => (u.region ?? 'Miền Bắc') === 'Miền Bắc').length,
+        leadership: users.filter(u => u.role === 'leadership' && (u.region ?? 'Miền Bắc') === 'Miền Bắc').length,
+        department: users.filter(u => u.role === 'department'  && (u.region ?? 'Miền Bắc') === 'Miền Bắc').length,
+      },
+      south: {
+        total:      relevant.filter(u => u.region === 'Miền Nam').length,
+        leadership: users.filter(u => u.role === 'leadership' && u.region === 'Miền Nam').length,
+        department: users.filter(u => u.role === 'department'  && u.region === 'Miền Nam').length,
+      },
+    }
+  }, [users])
 
   function handleSaved(saved: AppUser) {
     setUsers(prev => {
@@ -257,17 +251,6 @@ export default function UsersClient({
         alert(json.error ?? 'Xóa thất bại')
       }
       setDeletingId(null)
-    })
-  }
-
-  function handleSync() {
-    startTransition(async () => {
-      const res = await fetch('/api/users/sync', { method: 'POST' })
-      if (res.ok) router.refresh()
-      else {
-        const json = await res.json()
-        alert(json.error ?? 'Đồng bộ thất bại')
-      }
     })
   }
 
@@ -307,6 +290,38 @@ export default function UsersClient({
         </button>
       </div>
 
+      {/* ── Region scorecards / filter ── */}
+      <div className="ua-region-cards">
+        <button
+          className={`ua-region-card ua-region-card--north${regionFilter === 'Miền Bắc' ? ' ua-region-card--active' : ''}`}
+          onClick={() => setRegionFilter(f => f === 'Miền Bắc' ? 'all' : 'Miền Bắc')}
+        >
+          <div className="ua-region-header">
+            <span className="ua-region-dot ua-region-dot--north" />
+            <span className="ua-region-name">Miền Bắc</span>
+            <span className="ua-region-total">{regionCounts.north.total}</span>
+          </div>
+          <div className="ua-region-detail">
+            <span className="ua-region-pill ua-region-pill--amber">{regionCounts.north.leadership} lãnh đạo</span>
+            <span className="ua-region-pill ua-region-pill--blue">{regionCounts.north.department} phòng ban</span>
+          </div>
+        </button>
+        <button
+          className={`ua-region-card ua-region-card--south${regionFilter === 'Miền Nam' ? ' ua-region-card--active' : ''}`}
+          onClick={() => setRegionFilter(f => f === 'Miền Nam' ? 'all' : 'Miền Nam')}
+        >
+          <div className="ua-region-header">
+            <span className="ua-region-dot ua-region-dot--south" />
+            <span className="ua-region-name">Miền Nam</span>
+            <span className="ua-region-total">{regionCounts.south.total}</span>
+          </div>
+          <div className="ua-region-detail">
+            <span className="ua-region-pill ua-region-pill--amber">{regionCounts.south.leadership} lãnh đạo</span>
+            <span className="ua-region-pill ua-region-pill--blue">{regionCounts.south.department} phòng ban</span>
+          </div>
+        </button>
+      </div>
+
       {/* ── Toolbar ── */}
       <div className="ua-toolbar">
         <div className="ua-search-wrap">
@@ -325,10 +340,6 @@ export default function UsersClient({
         </div>
 
         <div className="ua-toolbar-right">
-          <button className="ua-btn ua-btn--ghost" onClick={handleSync} disabled={isPending} title="Đồng bộ từ Google Sheet">
-            <RefreshCw size={13} className={isPending ? 'ua-spin' : ''} />
-            Đồng bộ
-          </button>
           <button className="ua-btn ua-btn--primary" onClick={() => setModal({ mode: 'add', user: null })}>
             <UserPlus size={13} />
             Thêm tài khoản
@@ -345,13 +356,14 @@ export default function UsersClient({
               <th className="ua-th">Tên / Email</th>
               <th className="ua-th">Vai trò</th>
               <th className="ua-th">Phòng ban</th>
+              <th className="ua-th">Cơ sở</th>
               <th className="ua-th ua-th--actions">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="ua-empty">
+                <td colSpan={6} className="ua-empty">
                   {search || roleFilter !== 'all' ? 'Không tìm thấy tài khoản phù hợp.' : 'Chưa có tài khoản nào.'}
                 </td>
               </tr>
@@ -379,6 +391,11 @@ export default function UsersClient({
                     {u.departments
                       ? <span className="ua-dept">{u.departments.code ?? u.departments.name}</span>
                       : <span className="ua-dept-none">—</span>}
+                  </td>
+                  <td className="ua-td ua-td--region">
+                    <span className={`ua-region-badge ua-region-badge--${(u.region ?? 'Miền Bắc') === 'Miền Bắc' ? 'north' : 'south'}`}>
+                      {u.region ?? 'Miền Bắc'}
+                    </span>
                   </td>
                   <td className="ua-td ua-td--actions">
                     <button
@@ -440,6 +457,49 @@ export default function UsersClient({
         .ua-card--amber  .ua-card-val { color: #fbbf24; }
         .ua-card--blue   .ua-card-val { color: #63b3ed; }
         .ua-card-lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: rgba(255,255,255,0.25); }
+
+        /* ── Region cards ── */
+        .ua-region-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .ua-region-card {
+          display: flex; flex-direction: column; gap: 8px;
+          padding: 12px 16px; border-radius: 12px;
+          background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+          cursor: pointer; text-align: left; font-family: inherit;
+          transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        }
+        .ua-region-card:hover { background: rgba(255,255,255,0.04); }
+        .ua-region-card--north { border-color: rgba(99,179,237,0.15); background: rgba(99,179,237,0.03); }
+        .ua-region-card--south { border-color: rgba(251,191,36,0.15); background: rgba(251,191,36,0.03); }
+        .ua-region-card--north.ua-region-card--active { border-color: rgba(99,179,237,0.5); background: rgba(99,179,237,0.08); box-shadow: 0 0 0 1px rgba(99,179,237,0.2); }
+        .ua-region-card--south.ua-region-card--active { border-color: rgba(251,191,36,0.5); background: rgba(251,191,36,0.08); box-shadow: 0 0 0 1px rgba(251,191,36,0.2); }
+        .ua-region-header { display: flex; align-items: center; gap: 8px; }
+        .ua-region-dot {
+          width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+        }
+        .ua-region-dot--north { background: #63b3ed; box-shadow: 0 0 6px rgba(99,179,237,0.5); }
+        .ua-region-dot--south { background: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.5); }
+        .ua-region-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.65); flex: 1; }
+        .ua-region-total { font-size: 22px; font-weight: 300; letter-spacing: -0.03em; line-height: 1; }
+        .ua-region-card--north .ua-region-total { color: #63b3ed; }
+        .ua-region-card--south .ua-region-total { color: #fbbf24; }
+        .ua-region-detail { display: flex; gap: 6px; flex-wrap: wrap; }
+        .ua-region-pill {
+          display: inline-flex; align-items: center;
+          padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500;
+          border: 1px solid transparent;
+        }
+        .ua-region-pill--amber { background: rgba(251,191,36,0.1); color: #fbbf24; border-color: rgba(251,191,36,0.2); }
+        .ua-region-pill--blue  { background: rgba(99,179,237,0.08); color: #63b3ed; border-color: rgba(99,179,237,0.18); }
+
+        /* ── Region badge (table cell) ── */
+        .ua-td--region { white-space: nowrap; }
+        .ua-region-badge {
+          display: inline-flex; align-items: center;
+          padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500;
+          border: 1px solid transparent;
+        }
+        .ua-region-badge--north { background: rgba(99,179,237,0.08); color: #63b3ed; border-color: rgba(99,179,237,0.18); }
+        .ua-region-badge--south { background: rgba(251,191,36,0.08); color: #fbbf24; border-color: rgba(251,191,36,0.18); }
 
         /* ── Toolbar ── */
         .ua-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -591,15 +651,6 @@ export default function UsersClient({
         .um-input::placeholder { color: rgba(255,255,255,0.2); }
         select.um-input { cursor: pointer; }
         select.um-input option { background: #1a1a1a; color: #e5e5e5; }
-        .um-pwd-wrap { position: relative; display: flex; align-items: center; }
-        .um-input--pwd { flex: 1; padding-right: 36px; }
-        .um-pwd-toggle {
-          position: absolute; right: 8px;
-          background: none; border: none; cursor: pointer;
-          color: rgba(255,255,255,0.25); display: flex; padding: 4px;
-          transition: color 0.1s;
-        }
-        .um-pwd-toggle:hover { color: rgba(255,255,255,0.55); }
         .um-error {
           padding: 8px 12px; border-radius: 8px;
           background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
@@ -675,11 +726,20 @@ export default function UsersClient({
         [data-theme="light"] .um-input { background: #f8f8f8; border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.8); }
         [data-theme="light"] .um-input::placeholder { color: rgba(0,0,0,0.25); }
         [data-theme="light"] select.um-input option { background: #fff; color: #1a1a1a; }
-        [data-theme="light"] .um-pwd-toggle { color: rgba(0,0,0,0.3); }
-        [data-theme="light"] .um-pwd-toggle:hover { color: rgba(0,0,0,0.6); }
         [data-theme="light"] .um-actions { border-top-color: rgba(0,0,0,0.06); }
         [data-theme="light"] .um-btn--ghost { background: #f5f5f5; color: rgba(0,0,0,0.55); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .um-btn--ghost:hover:not(:disabled) { background: #ebebeb; color: rgba(0,0,0,0.75); }
+
+        [data-theme="light"] .ua-region-card { background: #fff; border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .ua-region-card--north { background: rgba(99,179,237,0.04); border-color: rgba(99,179,237,0.18); }
+        [data-theme="light"] .ua-region-card--south { background: rgba(180,83,9,0.04); border-color: rgba(180,83,9,0.15); }
+        [data-theme="light"] .ua-region-name { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .ua-region-card--north .ua-region-total { color: #1d6fa8; }
+        [data-theme="light"] .ua-region-card--south .ua-region-total { color: #b45309; }
+        [data-theme="light"] .ua-region-pill--amber { background: rgba(180,83,9,0.08); color: #b45309; border-color: rgba(180,83,9,0.18); }
+        [data-theme="light"] .ua-region-pill--blue  { background: rgba(29,111,168,0.08); color: #1d6fa8; border-color: rgba(29,111,168,0.18); }
+        [data-theme="light"] .ua-region-badge--north { background: rgba(29,111,168,0.08); color: #1d6fa8; border-color: rgba(29,111,168,0.18); }
+        [data-theme="light"] .ua-region-badge--south { background: rgba(180,83,9,0.08); color: #b45309; border-color: rgba(180,83,9,0.18); }
       `}</style>
     </div>
 

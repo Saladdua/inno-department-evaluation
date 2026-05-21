@@ -31,6 +31,7 @@ export default async function CriteriaPage({
       .from('criteria')
       .select('*')
       .eq('period_id', period.id)
+      .eq('region', 'Miền Bắc')
       .order('display_order')
     criteria.push(...(data ?? []))
   }

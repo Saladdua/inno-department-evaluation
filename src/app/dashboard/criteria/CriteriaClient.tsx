@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { setSelectedPeriod } from '@/app/actions/period'
-import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus } from 'lucide-react'
+import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus, Trash2 } from 'lucide-react'
 
 /* ── Types ─────────────────────────────────────────── */
 export interface Period {
@@ -20,10 +20,12 @@ export interface Criterion {
   period_id: string
   code:          string | null
   name:          string
+  notes:         string | null
   weight:        number
   input_type:    'manual' | 'auto'
   auto_source:   string | null
   display_order: number
+  region:        string
 }
 
 type Role = 'super_admin' | 'leadership' | 'department'
@@ -31,6 +33,7 @@ type Role = 'super_admin' | 'leadership' | 'department'
 interface ParsedRow {
   code: string | null
   name: string
+  notes: string | null
   weight: number
   input_type: 'manual' | 'auto'
   auto_source: string | null
@@ -62,22 +65,27 @@ function parseCriteriaCSV(text: string, quarter: number): ParsedRow[] {
   if (rows.length < 2) return []
   const [header, ...data] = rows
   const hdr = header.map(h => h.trim())
-  const qCol  = hdr.findIndex(h => h === `HS QUÝ ${quarter}`)
-  const q1Col = hdr.findIndex(h => h === 'HS QUÝ 1')
-  const weightCol = qCol >= 0 ? qCol : q1Col
+  // Support new single "Hệ số" column and old "HS QUÝ N" multi-column format
+  const hsCol   = hdr.findIndex(h => h === 'Hệ số')
+  const qCol    = hdr.findIndex(h => h === `HS QUÝ ${quarter}`)
+  const q1Col   = hdr.findIndex(h => h === 'HS QUÝ 1')
+  const weightCol = hsCol >= 0 ? hsCol : qCol >= 0 ? qCol : q1Col
+  const notesCol  = hdr.findIndex(h => h === 'Ghi chú')
   return data
     .filter(row => row[0]?.trim())
     .map(row => {
-      const tieuChi  = row[0]?.trim() ?? ''
-      const hinhThuc = row[1]?.trim() ?? ''
+      const tieuChi   = row[0]?.trim() ?? ''
+      const hinhThuc  = row[1]?.trim() ?? ''
       const rawWeight = weightCol >= 0 ? row[weightCol]?.trim() ?? '' : ''
-      const match   = tieuChi.match(/^(TC\d+):\s*(.+)/)
-      const isAuto  = hinhThuc.toLowerCase().includes('dữ liệu từ báo cáo')
+      const rawNotes  = notesCol  >= 0 ? row[notesCol]?.trim()  ?? '' : ''
+      const match     = tieuChi.match(/^(TC\d+):\s*(.+)/)
+      const isAuto    = hinhThuc.toLowerCase().includes('dữ liệu từ báo cáo')
       return {
-        code:       match ? match[1] : null,
-        name:       match ? match[2].trim() : tieuChi,
-        weight:     parseFloat(rawWeight) || 1,
-        input_type: isAuto ? 'auto' as const : 'manual' as const,
+        code:        match ? match[1] : null,
+        name:        match ? match[2].trim() : tieuChi,
+        notes:       rawNotes || null,
+        weight:      parseFloat(rawWeight) || 1,
+        input_type:  isAuto ? 'auto' as const : 'manual' as const,
         auto_source: isAuto ? 'google_sheets' : null,
       }
     })
@@ -177,7 +185,7 @@ function PeriodBanner({
             bắt đầu từ <strong>{fmt(current.start_date)}</strong>{' '}
             tới <strong>{fmt(current.end_date)}</strong>{' '}
             hiện{' '}
-            <span className="banner-status" style={{ color: STATUS_COLOR[current.status] }}>
+            <span className={`banner-status banner-status--${current.status}`}>
               {STATUS_LABEL[current.status]}
             </span>.
           </p>
@@ -221,13 +229,14 @@ function CriteriaTable({
 }: {
   criteria: Criterion[]
   canEdit: boolean
-  onUpdateCriterion: (id: string, fields: { code: string | null; name: string; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) => Promise<void>
+  onUpdateCriterion: (id: string, fields: { code: string | null; name: string; notes: string | null; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) => Promise<void>
   onAddRow: () => void
   onImportCsv?: () => void
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftCode, setDraftCode] = useState('')
   const [draftName, setDraftName] = useState('')
+  const [draftNotes, setDraftNotes] = useState('')
   const [draftWeight, setDraftWeight] = useState('')
   const [draftType, setDraftType] = useState<'manual' | 'auto'>('manual')
   const [draftAutoSource, setDraftAutoSource] = useState('')
@@ -237,6 +246,7 @@ function CriteriaTable({
     setEditingId(c.id)
     setDraftCode(c.code ?? '')
     setDraftName(c.name)
+    setDraftNotes(c.notes ?? '')
     setDraftWeight(String(c.weight))
     setDraftType(c.input_type)
     setDraftAutoSource(c.auto_source ?? '')
@@ -250,6 +260,7 @@ function CriteriaTable({
       await onUpdateCriterion(id, {
         code: draftCode.trim() || null,
         name: draftName.trim(),
+        notes: draftNotes.trim() || null,
         weight: w,
         input_type: draftType,
         auto_source: draftType === 'auto'
@@ -262,11 +273,11 @@ function CriteriaTable({
 
   function handleExportTemplate() {
     const lines = [
-      'DS TIÊU CHÍ & HỆ SỐ,Hình thức,HS QUÝ 1,HS QUÝ 2,HS QUÝ 3,HS QUÝ 4',
-      'TC01: Chất lượng và hiệu quả công việc,Thủ công,1.5,1.5,1.5,1.5',
-      'TC02: Tiến độ hoàn thành đúng hạn,Thủ công,1.0,1.0,1.0,1.0',
-      'TC03: Ý thức và thái độ làm việc,Thủ công,1.0,1.0,1.0,1.0',
-      'TC04: Kết quả từ hệ thống báo cáo,Dữ liệu từ báo cáo hệ thống,2.0,2.0,2.0,2.0',
+      'DS TIÊU CHÍ & HỆ SỐ,Hình thức,Hệ số,Ghi chú',
+      'TC01: Chất lượng và hiệu quả công việc,Thủ công,1.5,',
+      'TC02: Tiến độ hoàn thành đúng hạn,Thủ công,1.0,',
+      'TC03: Ý thức và thái độ làm việc,Thủ công,1.0,Bao gồm điểm danh và thái độ',
+      'TC04: Kết quả từ hệ thống báo cáo,Dữ liệu từ báo cáo hệ thống,2.0,',
     ]
     const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -320,6 +331,7 @@ function CriteriaTable({
                 <th className="ct-th ct-th--stt">STT</th>
                 <th className="ct-th ct-th--code">Mã</th>
                 <th className="ct-th ct-th--name">Tên tiêu chí</th>
+                <th className="ct-th ct-th--notes">Ghi chú</th>
                 <th className="ct-th ct-th--weight">Hệ số</th>
                 <th className="ct-th ct-th--type">Loại</th>
                 {canEdit && <th className="ct-th ct-th--actions" />}
@@ -356,6 +368,22 @@ function CriteriaTable({
                         }}
                       />
                     ) : c.name}
+                  </td>
+                  <td className="ct-td ct-td--notes">
+                    {editingId === c.id ? (
+                      <input
+                        className="ct-edit-input ct-edit-input--notes"
+                        value={draftNotes}
+                        onChange={e => setDraftNotes(e.target.value)}
+                        placeholder="Ghi chú..."
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') saveEdit(c.id)
+                          if (e.key === 'Escape') setEditingId(null)
+                        }}
+                      />
+                    ) : (
+                      <span className="ct-notes">{c.notes ?? ''}</span>
+                    )}
                   </td>
                   <td className="ct-td ct-td--weight">
                     {editingId === c.id ? (
@@ -453,16 +481,18 @@ function CriteriaTable({
 /* ── Add Criterion Modal ────────────────────────────── */
 function AddCriterionModal({
   periodId,
+  region,
   nextOrder,
   onClose,
   onAdded,
 }: {
   periodId: string
+  region: string
   nextOrder: number
   onClose: () => void
   onAdded: (c: Criterion) => void
 }) {
-  const [form, setForm] = useState({ code: '', name: '', weight: '1', input_type: 'manual' as 'manual' | 'auto', auto_source: '' })
+  const [form, setForm] = useState({ code: '', name: '', notes: '', weight: '1', input_type: 'manual' as 'manual' | 'auto', auto_source: '' })
   const [isPending, startTransition] = useTransition()
   const [err, setErr] = useState('')
 
@@ -475,8 +505,10 @@ function AddCriterionModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           period_id:     periodId,
+          region,
           code:          form.code || null,
           name:          form.name,
+          notes:         form.notes.trim() || null,
           weight:        parseFloat(form.weight) || 1,
           input_type:    form.input_type,
           auto_source:   form.input_type === 'auto'
@@ -509,6 +541,11 @@ function AddCriterionModal({
             <label className="mf-label">Tên tiêu chí <span className="mf-required">*</span></label>
             <input className="mf-input" placeholder="Nhập tên tiêu chí..." value={form.name}
               onChange={e => setForm({ ...form, name: e.target.value })} />
+          </div>
+          <div className="mf-field">
+            <label className="mf-label">Ghi chú</label>
+            <input className="mf-input" placeholder="Ghi chú (không bắt buộc)" value={form.notes}
+              onChange={e => setForm({ ...form, notes: e.target.value })} />
           </div>
           <div className="mf-field">
             <label className="mf-label">Hệ số</label>
@@ -565,11 +602,13 @@ function AddCriterionModal({
 /* ── Import CSV Modal ──────────────────────────────── */
 function ImportCsvModal({
   periodId,
+  region,
   quarter,
   onClose,
   onImported,
 }: {
   periodId: string
+  region: string
   quarter: number
   onClose: () => void
   onImported: (c: Criterion[]) => void
@@ -599,8 +638,10 @@ function ImportCsvModal({
     startTransition(async () => {
       const body = rows.map((r, i) => ({
         period_id: periodId,
+        region,
         code: r.code,
         name: r.name,
+        notes: r.notes,
         weight: r.weight,
         input_type: r.input_type,
         auto_source: r.auto_source,
@@ -629,7 +670,7 @@ function ImportCsvModal({
           <label className="import-file-zone">
             <Upload size={20} />
             <span className="import-file-text">Chọn file CSV</span>
-            <span className="import-file-hint">Dùng cột HS QUÝ {quarter} · DS TIÊU CHÍ & HỆ SỐ</span>
+            <span className="import-file-hint">Dùng cột HS QUÝ {quarter} · DS TIÊU CHÍ & HỆ SỐ · {region}</span>
             <input type="file" accept=".csv" onChange={handleFile} style={{ display: 'none' }} />
           </label>
 
@@ -642,6 +683,7 @@ function ImportCsvModal({
                     <tr>
                       <th className="ct-th">Mã</th>
                       <th className="ct-th ct-th--name">Tên tiêu chí</th>
+                      <th className="ct-th ct-th--notes">Ghi chú</th>
                       <th className="ct-th">Hệ số</th>
                       <th className="ct-th">Loại</th>
                     </tr>
@@ -651,6 +693,7 @@ function ImportCsvModal({
                       <tr key={i} className="ct-row">
                         <td className="ct-td"><span className="ct-code">{r.code ?? '—'}</span></td>
                         <td className="ct-td">{r.name}</td>
+                        <td className="ct-td ct-td--notes"><span className="ct-notes">{r.notes ?? ''}</span></td>
                         <td className="ct-td">
                           <input
                             className="ct-weight-input"
@@ -715,6 +758,7 @@ function CreatePeriodModal({
   })
   const [copyCriteria, setCopyCriteria] = useState(periods.length > 0)
   const [copyFromId, setCopyFromId] = useState<string>(periods[0]?.id ?? '')
+  const [copyFromRegion, setCopyFromRegion] = useState<'all' | 'Miền Bắc' | 'Miền Nam'>('all')
   const [isPending, startTransition] = useTransition()
   const [err, setErr] = useState('')
 
@@ -727,7 +771,10 @@ function CreatePeriodModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          ...(copyCriteria && copyFromId ? { copy_criteria_from: copyFromId } : {}),
+          ...(copyCriteria && copyFromId ? {
+            copy_criteria_from: copyFromId,
+            ...(copyFromRegion !== 'all' ? { copy_criteria_from_region: copyFromRegion } : {}),
+          } : {}),
         }),
       })
       const data = await res.json()
@@ -803,6 +850,21 @@ function CreatePeriodModal({
                   ))}
                 </select>
               </label>
+              {copyCriteria && (
+                <div className="mf-copy-region-row">
+                  <span className="mf-copy-region-label">Cơ sở:</span>
+                  {(['all', 'Miền Bắc', 'Miền Nam'] as const).map(r => (
+                    <button
+                      key={r}
+                      type="button"
+                      className={`mf-region-tab${copyFromRegion === r ? ' mf-region-tab--active' : ''}`}
+                      onClick={() => setCopyFromRegion(r)}
+                    >
+                      {r === 'all' ? 'Tất cả' : r}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {err && <p className="mf-error">{err}</p>}
@@ -838,25 +900,65 @@ export default function CriteriaClient({
   const [showAdd, setShowAdd] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [showCreatePeriod, setShowCreatePeriod] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const canEdit = role === 'super_admin'
 
-  // Restore last-selected period when navigating back without a periodId param
+  const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
+  const regionInitialized = useRef(false)
+
+  // Restore last-selected period + region when navigating back
   useEffect(() => {
-    if (searchParams.get('periodId')) return  // URL already has explicit period — respect it
+    let effectiveRegion: 'Miền Bắc' | 'Miền Nam' = 'Miền Bắc'
+    if (!regionInitialized.current) {
+      regionInitialized.current = true
+      const saved = localStorage.getItem('region_filter') as 'Miền Bắc' | 'Miền Nam' | null
+      if (saved === 'Miền Bắc' || saved === 'Miền Nam') {
+        effectiveRegion = saved
+        setRegionFilter(saved)
+      }
+    }
+
+    if (searchParams.get('periodId')) {
+      // URL has explicit period — respect it, but still re-fetch with correct region
+      const pid = searchParams.get('periodId')!
+      fetch(`/api/criteria?periodId=${pid}&region=${effectiveRegion}`)
+        .then(r => r.json())
+        .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
+        .catch(() => {})
+      return
+    }
+
     const savedId = localStorage.getItem('criteria_period_id')
     if (!savedId) return
-    const saved = periods.find(p => p.id === savedId)
-    if (!saved || saved.id === period?.id) return
+    const savedPeriod = periods.find(p => p.id === savedId)
+    if (!savedPeriod || savedPeriod.id === period?.id) return
     void setSelectedPeriod(savedId)
-    setPeriod(saved)
+    setPeriod(savedPeriod)
     setCriteria([])
-    fetch(`/api/criteria?periodId=${savedId}`)
+    fetch(`/api/criteria?periodId=${savedId}&region=${effectiveRegion}`)
       .then(r => r.json())
       .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
       .catch(() => {})
     window.history.replaceState({}, '', `/dashboard/criteria?periodId=${savedId}`)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    localStorage.setItem('region_filter', regionFilter)
+  }, [regionFilter])
+
+  // Re-fetch criteria whenever region changes (after initial mount)
+  const isFirstRegionRender = useRef(true)
+  useEffect(() => {
+    if (isFirstRegionRender.current) { isFirstRegionRender.current = false; return }
+    if (!period?.id) return
+    setCriteria([])
+    fetch(`/api/criteria?periodId=${period.id}&region=${regionFilter}`)
+      .then(r => r.json())
+      .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
+      .catch(() => {})
+  }, [regionFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handlePeriodSave(p: Period) {
     const method = p.id ? 'PUT' : 'POST'
@@ -869,7 +971,7 @@ export default function CriteriaClient({
     if (res.ok) setPeriod(data)
   }
 
-  async function handleUpdateCriterion(id: string, fields: { code: string | null; name: string; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) {
+  async function handleUpdateCriterion(id: string, fields: { code: string | null; name: string; notes: string | null; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) {
     const res = await fetch('/api/criteria', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -879,16 +981,15 @@ export default function CriteriaClient({
     if (res.ok) setCriteria(prev => prev.map(c => c.id === id ? { ...c, ...fields, weight: data.weight } : c))
   }
 
-  function switchPeriod(selectedId: string, newPeriod: Period | null) {
+  function switchPeriod(selectedId: string, newPeriod: Period | null, region?: string) {
+    const effectiveRegion = region ?? regionFilter
     localStorage.setItem('criteria_period_id', selectedId)
     void setSelectedPeriod(selectedId)
     setPeriod(newPeriod)
     setCriteria([])
-    // Update URL without going through the Next.js router — avoids server re-render
-    // races when router.refresh() is also in flight (e.g. after period creation).
     window.history.replaceState({}, '', `/dashboard/criteria?periodId=${selectedId}`)
     if (selectedId) {
-      fetch(`/api/criteria?periodId=${selectedId}`)
+      fetch(`/api/criteria?periodId=${selectedId}&region=${effectiveRegion}`)
         .then(r => r.json())
         .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
         .catch(() => {})
@@ -909,9 +1010,34 @@ export default function CriteriaClient({
     router.refresh()
   }
 
+  async function handlePeriodDelete() {
+    if (!period) return
+    setIsDeleting(true)
+    const res = await fetch(`/api/period?id=${period.id}`, { method: 'DELETE' })
+    setIsDeleting(false)
+    if (!res.ok) {
+      const data = await res.json()
+      alert(data.error ?? 'Lỗi xoá kỳ.')
+      return
+    }
+    const newPeriods = periods.filter(p => p.id !== period.id)
+    setPeriods(newPeriods)
+    setShowDeleteConfirm(false)
+    const next = newPeriods[0] ?? null
+    if (next) {
+      switchPeriod(next.id, next)
+    } else {
+      setPeriod(null)
+      setCriteria([])
+      window.history.replaceState({}, '', '/dashboard/criteria')
+    }
+    router.refresh()
+  }
+
   return (
     <div className="criteria-root">
-      {/* Period selector row */}
+      {/* Period selector row — hidden for department role */}
+      {role !== 'department' && (
       <div className="cp-header-row">
         <div className="cp-selector-wrap">
           <select className="cp-period-select" value={period?.id ?? ''} onChange={handlePeriodChange}>
@@ -926,11 +1052,44 @@ export default function CriteriaClient({
           <ChevronDown size={13} className="cp-chevron" />
         </div>
         {canEdit && (
-          <button className="cp-new-btn" onClick={() => setShowCreatePeriod(true)}>
-            <CalendarPlus size={13} /> Tạo kỳ mới
-          </button>
+          <div className="cp-region-tabs">
+            {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
+              <button
+                key={r}
+                className={`cp-region-tab${regionFilter === r ? ' cp-region-tab--active' : ''}`}
+                onClick={() => setRegionFilter(r)}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
+        {canEdit && (
+          <>
+            <button className="cp-new-btn" onClick={() => setShowCreatePeriod(true)}>
+              <CalendarPlus size={13} /> Tạo kỳ mới
+            </button>
+            {period && (
+              showDeleteConfirm ? (
+                <div className="cp-delete-confirm">
+                  <span className="cp-delete-warn">Xoá kỳ này?</span>
+                  <button className="cp-del-yes" onClick={handlePeriodDelete} disabled={isDeleting}>
+                    {isDeleting ? 'Đang xoá…' : <><Trash2 size={11} /> Xoá</>}
+                  </button>
+                  <button className="cp-del-no" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
+                    <X size={11} /> Huỷ
+                  </button>
+                </div>
+              ) : (
+                <button className="cp-del-btn" onClick={() => setShowDeleteConfirm(true)} title="Xoá kỳ này">
+                  <Trash2 size={13} />
+                </button>
+              )
+            )}
+          </>
         )}
       </div>
+      )} {/* end role !== 'department' */}
 
       <PeriodBanner period={period} canEdit={canEdit} onSave={handlePeriodSave} />
 
@@ -953,6 +1112,7 @@ export default function CriteriaClient({
       {showAdd && period && (
         <AddCriterionModal
           periodId={period.id}
+          region={regionFilter}
           nextOrder={criteria.length + 1}
           onClose={() => setShowAdd(false)}
           onAdded={c => setCriteria(prev => [...prev, c])}
@@ -962,6 +1122,7 @@ export default function CriteriaClient({
       {showImport && period && (
         <ImportCsvModal
           periodId={period.id}
+          region={regionFilter}
           quarter={period.quarter}
           onClose={() => setShowImport(false)}
           onImported={imported => setCriteria(prev => [...prev, ...imported])}
@@ -1007,6 +1168,12 @@ export default function CriteriaClient({
         .banner-text--muted { color: rgba(255,255,255,0.3); font-style: italic; }
         .banner-text strong { color: #fff; font-weight: 600; }
         .banner-status { font-weight: 600; }
+        .banner-status--draft  { color: rgba(255,200,0,0.7); }
+        .banner-status--open   { color: rgba(0,200,100,0.7); }
+        .banner-status--closed { color: rgba(255,255,255,0.3); }
+        [data-theme="light"] .banner-status--draft  { color: #b45309; }
+        [data-theme="light"] .banner-status--open   { color: #15803d; }
+        [data-theme="light"] .banner-status--closed { color: rgba(0,0,0,0.4); }
         .banner-form {
           display: flex;
           flex-wrap: wrap;
@@ -1095,8 +1262,10 @@ export default function CriteriaClient({
           text-align: left; white-space: nowrap;
         }
         .ct-th--stt, .ct-th--code, .ct-th--weight, .ct-th--actions { width: 1%; }
-        .ct-th--type { width: 200px; min-width: 180px; }
-        .ct-th--name { max-width: 260px; }
+        .ct-th--type { width: 200px; min-width: 200px; }
+        .ct-th--name { width: 200px; }
+        .ct-th--notes { min-width: 250px; }
+        .ct-td--name { white-space: normal; word-break: break-word; }
         .ct-row {
           border-top: 1px solid rgba(255,255,255,0.04);
           animation: rowIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
@@ -1140,6 +1309,17 @@ export default function CriteriaClient({
         .ct-edit-input--name {
           width: 100%;
           min-width: 180px;
+        }
+        .ct-edit-input--notes {
+          width: 100%;
+          min-width: 120px;
+        }
+        .ct-notes {
+          font-size: 12px;
+          color: rgba(255,255,255,0.35);
+          font-style: italic;
+          white-space: normal;
+          word-break: break-word;
         }
         .ct-td--stt { color: rgba(255,255,255,0.2); font-size: 12px; }
         .ct-code {
@@ -1231,6 +1411,15 @@ export default function CriteriaClient({
         .mf-copy-label { font-size: 12px; color: rgba(255,255,255,0.6); white-space: nowrap; }
         .mf-copy-select { flex: 1; margin: 0; }
         .mf-copy-select:disabled { opacity: 0.35; cursor: not-allowed; }
+        .mf-copy-region-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-left: 22px; }
+        .mf-copy-region-label { font-size: 11px; color: rgba(255,255,255,0.35); letter-spacing: 0.05em; white-space: nowrap; }
+        .mf-region-tab {
+          padding: 2px 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.08);
+          font-size: 11px; font-weight: 600; background: transparent; color: rgba(255,255,255,0.35);
+          cursor: pointer; font-family: var(--font-sans), sans-serif; transition: background 0.12s, color 0.12s;
+        }
+        .mf-region-tab:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }
+        .mf-region-tab--active { background: #B30000; color: #fff; border-color: #B30000; }
         .mf-error { font-size: 12px; color: #ff6666; font-style: italic; }
         .mf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
         .mf-btn {
@@ -1348,6 +1537,36 @@ export default function CriteriaClient({
           white-space: nowrap;
         }
         .cp-new-btn:hover { background: rgba(179,0,0,0.18); transform: translateY(-1px); }
+        .cp-del-btn {
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 32px; height: 32px; border-radius: 8px;
+          background: transparent; border: 1px solid rgba(255,255,255,0.08);
+          color: rgba(255,255,255,0.25); cursor: pointer;
+          transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .cp-del-btn:hover { background: rgba(220,30,30,0.12); border-color: rgba(220,30,30,0.3); color: rgba(255,80,80,0.8); }
+        .cp-delete-confirm {
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 4px 10px 4px 12px; border-radius: 8px;
+          background: rgba(220,30,30,0.08); border: 1px solid rgba(220,30,30,0.2);
+        }
+        .cp-delete-warn { font-size: 12px; color: rgba(255,150,150,0.85); white-space: nowrap; }
+        .cp-del-yes, .cp-del-no {
+          display: inline-flex; align-items: center; gap: 4px;
+          padding: 4px 9px; border-radius: 6px; border: none;
+          font-size: 11px; font-family: var(--font-sans), sans-serif; cursor: pointer;
+          transition: opacity 0.15s;
+        }
+        .cp-del-yes { background: rgba(220,30,30,0.7); color: #fff; }
+        .cp-del-yes:hover { background: rgba(220,30,30,0.9); }
+        .cp-del-yes:disabled { opacity: 0.5; cursor: not-allowed; }
+        .cp-del-no { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.5); }
+        .cp-del-no:hover { background: rgba(255,255,255,0.12); }
+        [data-theme="light"] .cp-del-btn { border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.25); }
+        [data-theme="light"] .cp-del-btn:hover { background: rgba(200,0,0,0.07); border-color: rgba(200,0,0,0.2); color: rgba(180,0,0,0.7); }
+        [data-theme="light"] .cp-delete-confirm { background: rgba(200,0,0,0.05); border-color: rgba(200,0,0,0.15); }
+        [data-theme="light"] .cp-delete-warn { color: rgba(160,0,0,0.8); }
+        [data-theme="light"] .cp-del-no { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.4); }
 
         /* ── Create period form row ── */
         .cp-row { display: flex; gap: 12px; }
@@ -1387,6 +1606,10 @@ export default function CriteriaClient({
         [data-theme="light"] .mf-label { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mf-input { background: #f7f7f8; border-color: rgba(0,0,0,0.1); color: #1a1a1a; }
         [data-theme="light"] .mf-copy-label { color: rgba(0,0,0,0.6); }
+        [data-theme="light"] .mf-copy-region-label { color: rgba(0,0,0,0.45); }
+        [data-theme="light"] .mf-region-tab { border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .mf-region-tab:hover { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .mf-input option { background: #fff; color: #1a1a1a; }
         [data-theme="light"] .mf-btn--cancel { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .import-file-zone { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .import-file-hint { color: rgba(0,0,0,0.3); }
@@ -1399,6 +1622,7 @@ export default function CriteriaClient({
         [data-theme="light"] .ct-import-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .ct-import-btn:hover { background: rgba(0,0,0,0.07); color: rgba(0,0,0,0.75); }
         [data-theme="light"] .ct-code { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .ct-notes { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .ct-type-badge--manual { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .ct-type-select { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.7); }
         [data-theme="light"] .ct-type-select option { background: #fff; }
@@ -1406,6 +1630,23 @@ export default function CriteriaClient({
         [data-theme="light"] .cp-period-select option { background: #fff; }
         [data-theme="light"] .cp-chevron { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .cp-new-btn { background: rgba(179,0,0,0.07); border-color: rgba(179,0,0,0.2); color: rgba(160,0,0,0.85); }
+
+        /* ── Region tabs (criteria page) ── */
+        .cp-region-tabs { display: flex; align-items: center; gap: 2px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 3px; }
+        .cp-region-tab {
+          padding: 3px 11px; border-radius: 5px; border: none; cursor: pointer;
+          font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+          background: transparent; color: rgba(255,255,255,0.35);
+          font-family: var(--font-sans), sans-serif;
+          transition: background 0.15s, color 0.15s;
+        }
+        .cp-region-tab:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.05); }
+        .cp-region-tab--active { background: #B30000; color: #fff; }
+        .cp-region-tab--active:hover { background: #cc0000; color: #fff; }
+        [data-theme="light"] .cp-region-tabs { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .cp-region-tab { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .cp-region-tab:hover { color: rgba(0,0,0,0.65); background: rgba(0,0,0,0.05); }
+        [data-theme="light"] .cp-region-tab--active { background: #B30000; color: #fff; }
       `}</style>
     </div>
   )

@@ -84,7 +84,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid department ids' }, { status: 400 })
   }
 
-  if (evaluatorDept.display_order >= targetDept.display_order) {
+  // Use the same sort key as the client: (display_order ASC, name ASC)
+  // evaluator must come strictly before target in that ordering
+  const evalIsAfter =
+    evaluatorDept.display_order > targetDept.display_order ||
+    (evaluatorDept.display_order === targetDept.display_order && evaluatorDept.name >= targetDept.name)
+
+  if (evalIsAfter) {
     return NextResponse.json(
       { error: 'Chỉ có thể chọn phòng ban có thứ tự cao hơn trong ma trận' },
       { status: 400 }
@@ -141,19 +147,52 @@ export async function POST(req: Request) {
 }
 
 // PATCH /api/matrix
-// Body: { period_id, locked: boolean } — toggle matrix lock (admin/leadership only)
+// Body option 1: { period_id, locked: boolean }       — toggle matrix lock (admin/leadership only)
+// Body option 2: { period_id, commit: boolean }        — commit or decommit dept matrix (department only)
 export async function PATCH(req: Request) {
   const user = await getAuthUser(req)
-  if (!user || !['super_admin', 'leadership'].includes(user.role)) {
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json() as Record<string, unknown>
+  const supabase = createServiceClient()
+
+  // ── Commit / decommit ──
+  if ('commit' in body) {
+    if (user.role !== 'department') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    const { period_id, commit } = body as { period_id: string; commit: boolean }
+    if (!period_id) return NextResponse.json({ error: 'Missing period_id' }, { status: 400 })
+
+    const deptId = user.departmentId
+    if (!deptId) return NextResponse.json({ error: 'No department' }, { status: 400 })
+
+    if (commit) {
+      const { error } = await supabase
+        .from('matrix_commits')
+        .upsert({ period_id, dept_id: deptId, committed_by: user.id }, { onConflict: 'period_id,dept_id' })
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    } else {
+      const { error } = await supabase
+        .from('matrix_commits')
+        .delete()
+        .eq('period_id', period_id)
+        .eq('dept_id', deptId)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Lock / unlock ──
+  if (!['super_admin', 'leadership'].includes(user.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { period_id, locked } = await req.json() as { period_id: string; locked: boolean }
+  const { period_id, locked } = body as { period_id: string; locked: boolean }
   if (!period_id || typeof locked !== 'boolean') {
     return NextResponse.json({ error: 'Missing period_id or locked' }, { status: 400 })
   }
 
-  const supabase = createServiceClient()
   const { error } = await supabase
     .from('evaluation_periods')
     .update({ matrix_locked: locked })

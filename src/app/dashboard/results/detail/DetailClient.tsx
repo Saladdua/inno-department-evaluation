@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 
 export interface CriterionInfo {
   id: string
   code: string | null
   name: string
   weight: number
+  region?: string | null
 }
 
 export interface ScoreEntry {
@@ -27,6 +28,7 @@ export interface TargetData {
   targetId: string
   targetName: string
   targetCode: string | null
+  region?: string | null
   evaluators: EvaluatorEntry[]
 }
 
@@ -34,7 +36,8 @@ interface Props {
   periodLabel: string
   criteria: CriterionInfo[]
   targets: TargetData[]
-  maxScore: number
+  role?: 'super_admin' | 'leadership' | 'department'
+  myRegion?: string | null
 }
 
 function fmt(n: number | null, d = 2) {
@@ -46,26 +49,69 @@ function avg(vals: (number | null)[]) {
   return nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : null
 }
 
-export default function DetailClient({ periodLabel, criteria, targets, maxScore }: Props) {
-  const [selectedId, setSelectedId] = useState<string>(targets[0]?.targetId ?? '')
+export default function DetailClient({ periodLabel, criteria, targets, role, myRegion = null }: Props) {
+  const isDept = role === 'department'
+  const canManageAll = role === 'super_admin' || role === 'leadership'
 
-  const target = useMemo(() => targets.find(t => t.targetId === selectedId), [targets, selectedId])
+  const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
+    (myRegion as 'Miền Bắc' | 'Miền Nam') ?? 'Miền Bắc'
+  )
+  useEffect(() => {
+    if (myRegion) return
+    const saved = localStorage.getItem('region_filter') as 'Miền Bắc' | 'Miền Nam' | null
+    if (saved === 'Miền Bắc' || saved === 'Miền Nam') setRegionFilter(saved)
+  }, [myRegion])
+  useEffect(() => {
+    localStorage.setItem('region_filter', regionFilter)
+  }, [regionFilter])
+
+  const activeRegion = myRegion ?? regionFilter
+
+  const displayCriteria = useMemo(
+    () => criteria.filter(c => !c.region || c.region === activeRegion),
+    [criteria, activeRegion]
+  )
+
+  const displayTargets = useMemo(
+    () => targets.filter(t => (t.region ?? 'Miền Bắc') === activeRegion),
+    [targets, activeRegion]
+  )
+
+  const maxScore = useMemo(
+    () => displayCriteria.reduce((sum, c) => sum + c.weight * 10, 0),
+    [displayCriteria]
+  )
+
+  const [selectedId, setSelectedId] = useState<string>(() => {
+    const initTargets = targets.filter(t => (t.region ?? 'Miền Bắc') === (myRegion ?? 'Miền Bắc'))
+    return initTargets[0]?.targetId ?? targets[0]?.targetId ?? ''
+  })
+
+  // Keep selectedId valid when region changes
+  const effectiveSelectedId = displayTargets.find(t => t.targetId === selectedId)
+    ? selectedId
+    : (displayTargets[0]?.targetId ?? '')
+
+  const target = useMemo(
+    () => displayTargets.find(t => t.targetId === effectiveSelectedId),
+    [displayTargets, effectiveSelectedId]
+  )
 
   const criteriaAvgs = useMemo(() => {
     if (!target) return []
-    return criteria.map(c => {
+    return displayCriteria.map(c => {
       const rawVals = target.evaluators.map(e => e.scores.find(s => s.criteriaId === c.id)?.rawScore ?? null)
       const wVals   = target.evaluators.map(e => e.scores.find(s => s.criteriaId === c.id)?.weightedScore ?? null)
       return { criteriaId: c.id, avgRaw: avg(rawVals), avgWeighted: avg(wVals) }
     })
-  }, [target, criteria])
+  }, [target, displayCriteria])
 
   const overallAvg = useMemo(() => {
     if (!target || target.evaluators.length === 0) return null
     return avg(target.evaluators.map(e => e.totalScore))
   }, [target])
 
-  if (targets.length === 0) {
+  if (displayTargets.length === 0) {
     return (
       <div className="dt-empty">Chưa có đánh giá nào được nộp trong kỳ này.</div>
     )
@@ -79,15 +125,28 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
         <div className="dt-header-left">
           <span className="dt-period">{periodLabel}</span>
           <span className="dt-sub">Kết quả chi tiết</span>
+          {myRegion === null ? (
+            <div className="dt-region-tabs">
+              {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
+                <button
+                  key={r}
+                  className={`dt-region-tab${regionFilter === r ? ' dt-region-tab--active' : ''}`}
+                  onClick={() => setRegionFilter(r)}
+                >{r}</button>
+              ))}
+            </div>
+          ) : canManageAll ? (
+            <span className="dt-region-badge">{myRegion}</span>
+          ) : null}
         </div>
         <div className="dt-header-right">
           <span className="dt-selector-label">Phòng được đánh giá</span>
           <select
             className="dt-select"
-            value={selectedId}
+            value={effectiveSelectedId}
             onChange={e => setSelectedId(e.target.value)}
           >
-            {targets.map(t => (
+            {displayTargets.map(t => (
               <option key={t.targetId} value={t.targetId}>
                 {t.targetCode ?? t.targetName}
               </option>
@@ -113,11 +172,11 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
               </div>
               <div className="dt-stat">
                 <span className="dt-stat-val dt-stat-val--score">{fmt(overallAvg, 1)}</span>
-                <span className="dt-stat-lbl">điểm trung bình / {maxScore}</span>
+                <span className="dt-stat-lbl">điểm trung bình / 100</span>
               </div>
               <div className="dt-stat">
                 <span className="dt-stat-val dt-stat-val--pct">
-                  {overallAvg != null ? `${((overallAvg / maxScore) * 100).toFixed(1)}%` : '—'}
+                  {overallAvg != null ? `${overallAvg.toFixed(1)}%` : '—'}
                 </span>
                 <span className="dt-stat-lbl">% điểm tối đa</span>
               </div>
@@ -126,6 +185,19 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
 
           {target.evaluators.length === 0 ? (
             <div className="dt-empty">Chưa có đánh giá nào từ các phòng ban.</div>
+          ) : isDept ? (
+            /* Simplified view for department users — average score only */
+            <div className="dt-dept-result">
+              <div className="dt-dept-avg-label">Điểm trung bình của phòng bạn</div>
+              <div className="dt-dept-avg-score">
+                {overallAvg != null ? overallAvg.toFixed(1) : '—'}
+                <span className="dt-dept-avg-max"> / {maxScore}</span>
+              </div>
+              <div className="dt-dept-avg-pct">
+                {overallAvg != null ? `${((overallAvg / maxScore) * 100).toFixed(1)}%` : '—'} điểm tối đa
+              </div>
+              <div className="dt-dept-count">{target.evaluators.length} lượt đánh giá đã nộp</div>
+            </div>
           ) : (
             <>
               {/* ── Evaluator × Criteria matrix table ── */}
@@ -134,13 +206,13 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
                   <thead>
                     <tr>
                       <th className="dt-th th-evaluator">Phòng đánh giá</th>
-                      {criteria.map(c => (
+                      {displayCriteria.map(c => (
                         <th key={c.id} className="dt-th th-criterion">
                           <span className="dt-col-label">{c.code ?? c.name}</span>
                           <span className="dt-col-weight">×{c.weight}</span>
                         </th>
                       ))}
-                      <th className="dt-th th-total">Tổng điểm</th>
+                      <th className="dt-th th-total">Tổng điểm<span className="dt-col-weight">/100</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -149,7 +221,7 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
                         <td className="dt-td td-evaluator">
                           <span className="dt-eval-name">{ev.evaluatorCode ?? ev.evaluatorName}</span>
                         </td>
-                        {criteria.map(c => {
+                        {displayCriteria.map(c => {
                           const s = ev.scores.find(s => s.criteriaId === c.id)
                           const raw = s?.rawScore ?? null
                           return (
@@ -185,29 +257,6 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
                   </tfoot>
                 </table>
               </div>
-
-              {/* ── Per-criterion breakdown bar chart ── */}
-              <div className="dt-bars">
-                <div className="dt-bars-title">Điểm trung bình theo tiêu chí</div>
-                <div className="dt-bars-grid">
-                  {criteria.map(c => {
-                    const ca = criteriaAvgs.find(a => a.criteriaId === c.id)
-                    const rawPct = ca?.avgRaw != null ? (ca.avgRaw / 10) * 100 : 0
-                    return (
-                      <div key={c.id} className="dt-bar-row">
-                        <span className="dt-bar-code">{c.code ?? c.name}</span>
-                        <div className="dt-bar-track">
-                          <div className="dt-bar-fill" style={{ width: `${rawPct}%` }} />
-                        </div>
-                        <span className="dt-bar-val">{fmt(ca?.avgRaw ?? null, 1)}</span>
-                        <span className="dt-bar-wval">
-                          {ca?.avgWeighted != null ? `(${fmt(ca.avgWeighted, 2)})` : ''}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
             </>
           )}
         </>
@@ -233,6 +282,13 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
           text-transform: uppercase; color: rgba(255,255,255,0.4);
         }
         .dt-sub { font-size: 13px; color: rgba(255,255,255,0.25); font-style: italic; }
+
+        .dt-region-tabs { display: flex; align-items: center; gap: 2px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 3px; }
+        .dt-region-tab { padding: 3px 11px; border-radius: 5px; border: none; cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; background: transparent; color: rgba(255,255,255,0.35); font-family: var(--font-sans), sans-serif; transition: background 0.15s, color 0.15s; }
+        .dt-region-tab:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.05); }
+        .dt-region-tab--active { background: #B30000; color: #fff; }
+        .dt-region-tab--active:hover { background: #cc0000; }
+        .dt-region-badge { padding: 3px 11px; border-radius: 5px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; background: #B30000; color: #fff; }
 
         .dt-header-right { display: flex; align-items: center; gap: 10px; }
         .dt-selector-label { font-size: 11px; color: rgba(255,255,255,0.3); white-space: nowrap; }
@@ -274,7 +330,26 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
         .dt-matrix-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
         .dt-matrix-wrap::-webkit-scrollbar-thumb { background: rgba(179,0,0,0.15); border-radius: 4px; }
 
-        .dt-matrix { border-collapse: collapse; }
+        .dt-matrix { border-collapse: collapse; width: 100%; }
+
+        /* ── Dept simplified result ── */
+        .dt-dept-result {
+          display: flex; flex-direction: column; align-items: center; gap: 10px;
+          padding: 48px 32px; border-radius: 14px;
+          background: rgba(179,0,0,0.04); border: 1px solid rgba(179,0,0,0.12);
+          text-align: center;
+        }
+        .dt-dept-avg-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.3); }
+        .dt-dept-avg-score { font-size: 64px; font-weight: 200; letter-spacing: -0.04em; color: #B30000; line-height: 1; }
+        .dt-dept-avg-max { font-size: 22px; font-weight: 300; color: rgba(255,255,255,0.2); }
+        .dt-dept-avg-pct { font-size: 14px; color: rgba(255,255,255,0.35); }
+        .dt-dept-count { font-size: 12px; color: rgba(255,255,255,0.2); font-style: italic; margin-top: 4px; }
+
+        [data-theme="light"] .dt-dept-result { background: #fff; border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .dt-dept-avg-label { color: rgba(0,0,0,0.35); }
+        [data-theme="light"] .dt-dept-avg-max { color: rgba(0,0,0,0.25); }
+        [data-theme="light"] .dt-dept-avg-pct { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .dt-dept-count { color: rgba(0,0,0,0.3); }
 
         .dt-th {
           padding: 8px 12px; text-align: center;
@@ -300,6 +375,7 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
           z-index: 1;
         }
         .dt-tr:hover .td-evaluator { background: #111; }
+        [data-theme="light"] .dt-tr:hover .td-evaluator { background: #eeeeef; }
         .dt-eval-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.6); letter-spacing: 0.04em; }
 
         .dt-score {
@@ -328,37 +404,6 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
         .dt-avg-total { padding: 8px 12px; text-align: center; border-left: 1px solid rgba(255,255,255,0.05); }
         .dt-avg-total-val { font-size: 14px; font-weight: 700; color: #B30000; }
 
-        /* ── Bar chart ── */
-        .dt-bars {
-          padding: 16px 18px; border-radius: 12px;
-          background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
-        }
-        .dt-bars-title {
-          font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
-          color: rgba(255,255,255,0.25); margin-bottom: 14px;
-        }
-        .dt-bars-grid { display: flex; flex-direction: column; gap: 8px; }
-        .dt-bar-row { display: flex; align-items: center; gap: 10px; }
-        .dt-bar-code {
-          font-size: 11px; font-weight: 600; color: rgba(179,0,0,0.7);
-          font-family: monospace; width: 44px; flex-shrink: 0; text-align: right;
-        }
-        .dt-bar-track {
-          flex: 1; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden;
-        }
-        .dt-bar-fill {
-          height: 100%; background: #B30000; border-radius: 3px;
-          transition: width 0.4s cubic-bezier(0.34,1.56,0.64,1);
-          box-shadow: 0 0 5px rgba(179,0,0,0.3);
-        }
-        .dt-bar-val {
-          font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.6);
-          width: 28px; text-align: right; flex-shrink: 0;
-        }
-        .dt-bar-wval {
-          font-size: 10px; color: rgba(179,0,0,0.5); width: 48px; flex-shrink: 0;
-        }
-
         /* ── Light mode ───────────────────────────────── */
         [data-theme="light"] .dt-empty { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .dt-period { color: rgba(0,0,0,0.4); }
@@ -385,12 +430,6 @@ export default function DetailClient({ periodLabel, criteria, targets, maxScore 
         [data-theme="light"] .dt-avg-label { background: #f7f7f8; color: rgba(0,0,0,0.35); }
         [data-theme="light"] .dt-avg-val { color: rgba(0,0,0,0.5); }
         [data-theme="light"] .dt-avg-total { border-left-color: rgba(0,0,0,0.07); }
-        [data-theme="light"] .dt-bars { background: #fff; border-color: rgba(0,0,0,0.08); }
-        [data-theme="light"] .dt-bars-title { color: rgba(0,0,0,0.4); }
-        [data-theme="light"] .dt-bar-code { color: rgba(0,0,0,0.35); }
-        [data-theme="light"] .dt-bar-track { background: rgba(0,0,0,0.08); }
-        [data-theme="light"] .dt-bar-val { color: rgba(0,0,0,0.5); }
-        [data-theme="light"] .dt-bar-wval { color: rgba(0,0,0,0.3); }
       `}</style>
     </div>
   )

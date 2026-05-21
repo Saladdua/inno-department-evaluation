@@ -43,6 +43,7 @@ next-env.d.ts
 # secrets
 service-account.json
 .env.local
+example/
 
 .gitnexus
 

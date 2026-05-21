@@ -10,7 +10,7 @@ export default async function DepartmentsPage() {
   const supabase = createServiceClient()
 
   const [{ data: deptsData }, { data: userCounts }] = await Promise.all([
-    supabase.from('departments').select('id, name, code').order('name'),
+    supabase.from('departments').select('id, name, code, region').order('name'),
     supabase.from('users').select('department_id').not('department_id', 'is', null),
   ])
 

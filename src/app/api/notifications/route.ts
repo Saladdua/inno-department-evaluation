@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   // Types visible to each role
   const visibleTypes = canManageAll
     ? ['report_submitted', 'period_started', 'period_ended']
-    : ['chosen_for_evaluation', 'evaluation_submitted', 'period_started', 'period_ended', 'report_resolved']
+    : ['chosen_for_evaluation', 'evaluation_submitted', 'period_started', 'period_ended', 'report_resolved', 'report_request']
 
   let query = supabase
     .from('notifications')
@@ -141,17 +141,22 @@ export async function POST(req: Request) {
       : Promise.resolve({ data: null }),
   ])
 
-  await supabase.from('notifications').insert({
-    type: 'report_submitted',
-    recipient_dept_id: null,
-    data: {
-      ...(notif?.data ?? {}),
-      reporter_dept_id: user.departmentId,
-      reporter_dept_name: reporterDept?.name ?? '',
-      reason,
-      report_id: data.id,
-    },
-  })
+  // Notify the evaluator (dept A) first — they decide whether to accept or reject.
+  // Only if they reject does the report escalate to admin.
+  const evalDeptId = (notif?.data as Record<string, string> | null)?.evaluator_dept_id
+  if (evalDeptId) {
+    await supabase.from('notifications').insert({
+      type: 'report_request',
+      recipient_dept_id: evalDeptId,
+      data: {
+        ...(notif?.data ?? {}),
+        reporter_dept_id: user.departmentId,
+        reporter_dept_name: reporterDept?.name ?? '',
+        reason: reason ?? '',
+        report_id: data.id,
+      },
+    })
+  }
 
   return NextResponse.json({ ok: true })
 }

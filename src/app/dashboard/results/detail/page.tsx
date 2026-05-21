@@ -10,7 +10,8 @@ export default async function ResultsDetailPage() {
   if (!session) redirect('/login')
 
   const role = session.user.role as 'super_admin' | 'leadership' | 'department'
-  if (role === 'department') redirect('/dashboard/results')
+  const myDeptId = session.user.departmentId ?? null
+  const myUserId = session.user.id
 
   const supabase = createServiceClient()
 
@@ -24,9 +25,16 @@ export default async function ResultsDetailPage() {
     )
   }
 
+  // Determine region for filtering (leadership: from users table; department: from their dept)
+  let myRegion: string | null = null
+  if (role === 'leadership') {
+    const { data: ldr } = await supabase.from('users').select('region').eq('id', myUserId).maybeSingle()
+    myRegion = ldr?.region ?? 'Miền Bắc'
+  }
+
   const [criteriaResult, deptsResult, evalsResult] = await Promise.all([
-    supabase.from('criteria').select('id, code, name, weight').eq('period_id', period.id).order('display_order'),
-    supabase.from('departments').select('id, name, code').order('name'),
+    supabase.from('criteria').select('id, code, name, weight, region').eq('period_id', period.id).order('display_order'),
+    supabase.from('departments').select('id, name, code, region').order('name'),
     supabase
       .from('evaluations')
       .select('id, evaluator_id, target_id, total_score')
@@ -35,9 +43,14 @@ export default async function ResultsDetailPage() {
   ])
 
   const criteria: CriterionInfo[] = (criteriaResult.data ?? []).map(c => ({
-    id: c.id, code: c.code, name: c.name, weight: Number(c.weight),
+    id: c.id, code: c.code, name: c.name, weight: Number(c.weight), region: c.region ?? null,
   }))
-  const depts     = deptsResult.data ?? []
+  const depts = deptsResult.data ?? []
+
+  // Derive department user's region from their dept record
+  if (role === 'department' && myDeptId) {
+    myRegion = depts.find(d => d.id === myDeptId)?.region ?? 'Miền Bắc'
+  }
   const submitted = evalsResult.data ?? []
 
   // Fetch all scores for submitted evaluations
@@ -50,8 +63,6 @@ export default async function ResultsDetailPage() {
       .in('evaluation_id', evalIds)
     rawScores = data ?? []
   }
-
-  const maxScore = criteria.reduce((sum, c) => sum + c.weight * 10, 0)
 
   // Group submitted evaluations by target, then by evaluator
   const targetMap = new Map<string, EvaluatorEntry[]>()
@@ -73,13 +84,18 @@ export default async function ResultsDetailPage() {
     })
   }
 
-  // Build TargetData array — only for depts that have received at least one evaluation
+  // Departments only see their own result; admins/leadership see all
+  const targetFilter = role === 'department' && myDeptId
+    ? (d: { id: string }) => d.id === myDeptId && targetMap.has(d.id)
+    : (d: { id: string }) => targetMap.has(d.id)
+
   const targets: TargetData[] = depts
-    .filter(d => targetMap.has(d.id))
+    .filter(targetFilter)
     .map(d => ({
       targetId:   d.id,
       targetName: d.name,
       targetCode: d.code,
+      region:     d.region ?? 'Miền Bắc',
       evaluators: (targetMap.get(d.id) ?? []).sort((a, b) =>
         (a.evaluatorName ?? '').localeCompare(b.evaluatorName ?? '')
       ),
@@ -90,7 +106,8 @@ export default async function ResultsDetailPage() {
       periodLabel={`Quý ${period.quarter} · ${period.year}`}
       criteria={criteria}
       targets={targets}
-      maxScore={maxScore}
+      role={role}
+      myRegion={myRegion}
     />
   )
 }

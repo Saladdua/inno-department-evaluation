@@ -5,14 +5,13 @@ import { createServiceClient } from '@/lib/supabase/server'
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const periodId = searchParams.get('periodId')
+  const region   = searchParams.get('region')
   if (!periodId) return NextResponse.json({ error: 'Missing periodId' }, { status: 400 })
 
   const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('criteria')
-    .select('*')
-    .eq('period_id', periodId)
-    .order('display_order')
+  let query = supabase.from('criteria').select('*').eq('period_id', periodId)
+  if (region) query = query.eq('region', region) as typeof query
+  const { data, error } = await query.order('display_order')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data)

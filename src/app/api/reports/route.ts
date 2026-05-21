@@ -28,6 +28,90 @@ export async function GET(req: Request) {
   return NextResponse.json(data ?? [])
 }
 
+// PATCH /api/reports
+// Called by the evaluator dept (dept A) in response to a report_request notification.
+// Body: { notification_id, action: 'accept' | 'reject' }
+// accept → remove matrix pair + close the report + notify both parties
+// reject → escalate to admin (report_submitted), report stays open
+export async function PATCH(req: Request) {
+  const user = await getAuthUser(req)
+  if (!user || !user.departmentId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const { notification_id, action } = body as { notification_id: string; action: 'accept' | 'reject' }
+
+  if (!notification_id || !['accept', 'reject'].includes(action)) {
+    return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+  }
+
+  const supabase = createServiceClient()
+
+  // Fetch the report_request notification to get context
+  const { data: notif } = await supabase
+    .from('notifications')
+    .select('data, recipient_dept_id')
+    .eq('id', notification_id)
+    .maybeSingle()
+
+  if (!notif || notif.recipient_dept_id !== user.departmentId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const nd = notif.data as Record<string, string>
+  const evaluator_id = user.departmentId
+  const reporter_id  = nd.reporter_dept_id
+  const period_id    = nd.period_id
+  const report_id    = nd.report_id
+
+  if (action === 'accept') {
+    // Remove the evaluator's matrix choice
+    if (evaluator_id && reporter_id && period_id) {
+      await supabase
+        .from('evaluation_matrix')
+        .delete()
+        .eq('period_id', period_id)
+        .eq('evaluator_id', evaluator_id)
+        .eq('target_id', reporter_id)
+    }
+
+    // Delete the report
+    if (report_id) {
+      await supabase.from('evaluation_reports').delete().eq('id', report_id)
+    }
+
+    // Fetch names for notifications
+    const deptIds = [reporter_id, evaluator_id].filter(Boolean)
+    const { data: depts } = deptIds.length
+      ? await supabase.from('departments').select('id, name').in('id', deptIds)
+      : { data: [] }
+    const deptName = (id: string) => (depts ?? []).find(d => d.id === id)?.name ?? 'Phòng ban'
+
+    if (reporter_id) {
+      await supabase.from('notifications').insert({
+        type: 'report_resolved',
+        recipient_dept_id: reporter_id,
+        data: { action: 'approve', role: 'reporter', reporter_dept_name: deptName(reporter_id), evaluator_dept_name: deptName(evaluator_id) },
+      })
+    }
+    await supabase.from('notifications').insert({
+      type: 'report_resolved',
+      recipient_dept_id: evaluator_id,
+      data: { action: 'approve', role: 'evaluator', reporter_dept_name: deptName(reporter_id ?? ''), evaluator_dept_name: deptName(evaluator_id) },
+    })
+  } else {
+    // Reject: escalate to admin
+    await supabase.from('notifications').insert({
+      type: 'report_submitted',
+      recipient_dept_id: null,
+      data: { ...nd, escalated: 'true' },
+    })
+  }
+
+  return NextResponse.json({ ok: true })
+}
+
 // DELETE /api/reports
 // Body: { id, action: 'dismiss' | 'approve' }
 // dismiss → delete report row, notify both parties

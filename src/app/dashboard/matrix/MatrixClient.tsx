@@ -1,19 +1,25 @@
 'use client'
 
-import { useState, useTransition, useMemo, useRef } from 'react'
-import { Trash2, Info, GripVertical, ArrowUpDown, X, Check, Lock, Unlock } from 'lucide-react'
+import { useState, useTransition, useMemo, useRef, useEffect } from 'react'
+import { Trash2, Info, GripVertical, ArrowUpDown, X, Check, Lock, Unlock, Send, Pencil, ChevronDown } from 'lucide-react'
 
 export interface Department {
   id: string
   name: string
   code: string | null
   display_order: number
+  region?: string | null
 }
 
 export interface MatrixEntry {
   evaluator_id: string
   target_id: string
   selected_by: string | null
+}
+
+export interface CommitEntry {
+  dept_id: string
+  committed_at: string
 }
 
 type Role = 'super_admin' | 'leadership' | 'department'
@@ -31,6 +37,9 @@ export default function MatrixClient({
   myDeptId,
   myUserId,
   matrixLocked: initialLocked,
+  periodStatus,
+  committedDepts: initialCommits,
+  myRegion,
 }: {
   initialDepts: Department[]
   initialEntries: MatrixEntry[]
@@ -40,6 +49,9 @@ export default function MatrixClient({
   myDeptId: string | null
   myUserId: string | null
   matrixLocked: boolean
+  periodStatus: 'draft' | 'open' | 'closed'
+  committedDepts: CommitEntry[]
+  myRegion: string | null
 }) {
   const [entries, setEntries] = useState<MatrixEntry[]>(initialEntries)
   const [isPending, startTransition] = useTransition()
@@ -49,7 +61,17 @@ export default function MatrixClient({
   const [isLocked, setIsLocked] = useState(initialLocked)
   const [isLocking, startLocking] = useTransition()
 
+  // Commit state
+  const [committedSet, setCommittedSet] = useState<Set<string>>(
+    () => new Set(initialCommits.map(c => c.dept_id))
+  )
+  const myDeptHasCommitted = myDeptId ? committedSet.has(myDeptId) : false
+  const [isEditing, setIsEditing] = useState(!myDeptHasCommitted)
+  const [isCommitting, startCommitting] = useTransition()
+  const [commitStatus, setCommitStatus] = useState<'idle' | 'ok' | 'err'>('idle')
+
   // Reorder state
+  const [showGuide, setShowGuide] = useState(!myDeptHasCommitted)
   const [reorderOpen, setReorderOpen] = useState(false)
   const [draftOrder, setDraftOrder] = useState<Department[]>([])
   const [isSaving, startSaving] = useTransition()
@@ -58,10 +80,34 @@ export default function MatrixClient({
   const canManageAll = role === 'super_admin'
   const depts = initialDepts
 
-  // Index map: deptId → position in ordered array
+  // Region filter — locked to myRegion for dept/leadership; tabs for super_admin
+  const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
+    (myRegion as 'Miền Bắc' | 'Miền Nam') ?? 'Miền Bắc'
+  )
+  useEffect(() => {
+    if (myRegion) return // region is locked — ignore localStorage
+    const saved = localStorage.getItem('region_filter') as 'Miền Bắc' | 'Miền Nam' | null
+    if (saved === 'Miền Bắc' || saved === 'Miền Nam') setRegionFilter(saved)
+  }, [myRegion])
+  useEffect(() => {
+    localStorage.setItem('region_filter', regionFilter)
+  }, [regionFilter])
+
+  const displayDepts = useMemo(
+    () => depts.filter(d => (d.region ?? 'Miền Bắc') === regionFilter),
+    [depts, regionFilter]
+  )
+
+  // Index map: deptId → position in ordered array (global — for upper-triangle logic)
   const deptIndex = useMemo(
     () => new Map(depts.map((d, i) => [d.id, i])),
     [depts]
+  )
+
+  // Display index map for isLastDept check
+  const displayDeptIndex = useMemo(
+    () => new Map(displayDepts.map((d, i) => [d.id, i])),
+    [displayDepts]
   )
 
   const entrySet = useMemo(
@@ -86,6 +132,10 @@ export default function MatrixClient({
     if (!isUpperTriangle(rowId, colId)) return false
     if (canManageAll) return true
     if (isLocked) return false
+    // Departments can only edit the matrix during the draft period
+    if (role === 'department' && periodStatus !== 'draft') return false
+    // Departments cannot edit when they have committed (unless in edit mode)
+    if (role === 'department' && myDeptHasCommitted && !isEditing) return false
     return role === 'department' && myDeptId === rowId
   }
 
@@ -133,7 +183,7 @@ export default function MatrixClient({
 
   // ── Reorder helpers ──
   function openReorder() {
-    setDraftOrder([...depts])
+    setDraftOrder([...displayDepts])
     setReorderOpen(true)
   }
 
@@ -179,6 +229,42 @@ export default function MatrixClient({
     })
   }
 
+  function handleCommit() {
+    if (!periodId || !myDeptId) return
+    startCommitting(async () => {
+      const res = await fetch('/api/matrix', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_id: periodId, commit: true }),
+      })
+      if (res.ok) {
+        setCommittedSet(prev => new Set([...prev, myDeptId]))
+        setIsEditing(false)
+        setCommitStatus('ok')
+      } else {
+        setCommitStatus('err')
+      }
+    })
+  }
+
+  function handleEdit() {
+    if (!periodId || !myDeptId) return
+    startCommitting(async () => {
+      const res = await fetch('/api/matrix', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_id: periodId, commit: false }),
+      })
+      if (res.ok) {
+        setCommittedSet(prev => { const s = new Set(prev); s.delete(myDeptId); return s })
+        setIsEditing(true)
+        setCommitStatus('idle')
+      } else {
+        setCommitStatus('err')
+      }
+    })
+  }
+
   // Count how many depts each evaluator is evaluating
   const evaluatingCount = useMemo(() => {
     const map: Record<string, number> = {}
@@ -200,8 +286,8 @@ export default function MatrixClient({
     [entries, myDeptId]
   )
 
-  const myRowIndex = myDeptId ? (deptIndex.get(myDeptId) ?? -1) : -1
-  const isLastDept = myRowIndex === depts.length - 1
+  const myDisplayRowIndex = myDeptId ? (displayDeptIndex.get(myDeptId) ?? -1) : -1
+  const isLastDept = myDisplayRowIndex === displayDepts.length - 1
 
   if (!periodId) {
     return (
@@ -212,6 +298,9 @@ export default function MatrixClient({
     )
   }
 
+  // Show commit/edit buttons for dept in draft period, not locked
+  const showCommitBar = role === 'department' && myDeptId && periodStatus === 'draft' && !isLocked
+
   return (
     <div className="mx-root">
 
@@ -219,6 +308,21 @@ export default function MatrixClient({
       <div className="mx-header">
         <div className="mx-header-left">
           <span className="mx-period">{periodLabel}</span>
+          {myRegion === null ? (
+            <div className="mx-region-tabs">
+              {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
+                <button
+                  key={r}
+                  className={`mx-region-tab${regionFilter === r ? ' mx-region-tab--active' : ''}`}
+                  onClick={() => setRegionFilter(r)}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="mx-region-badge">{regionFilter}</span>
+          )}
           <span className="mx-stat">{totalLinks} lượt chọn</span>
         </div>
         {canManageAll && (
@@ -250,16 +354,57 @@ export default function MatrixClient({
         )}
       </div>
 
+      {/* ── Usage guide (department role) ── */}
+      {role === 'department' && myDeptId && (
+        <div className="mx-guide">
+          <button className="mx-guide-toggle" onClick={() => setShowGuide(v => !v)}>
+            <Info size={13} className="mx-guide-icon" />
+            <span>Hướng dẫn sử dụng ma trận</span>
+            <ChevronDown size={12} className={`mx-guide-chevron${showGuide ? ' mx-guide-chevron--open' : ''}`} />
+          </button>
+          {showGuide && (
+            <div className="mx-guide-body">
+              <div className="mx-guide-item">
+                <span className="mx-guide-num">1</span>
+                <div><strong>Ma trận đánh giá chéo</strong> — Mỗi <em>hàng</em> là phòng đánh giá, mỗi <em>cột</em> là phòng được đánh giá. Chỉ nửa trên (upper triangle) được phép chọn.</div>
+              </div>
+              <div className="mx-guide-item">
+                <span className="mx-guide-num">2</span>
+                <div><strong>Hàng của bạn</strong> được tô đỏ. Nhấp vào ô trong hàng đó để <strong>chọn / bỏ chọn</strong> phòng ban bạn muốn đánh giá.</div>
+              </div>
+              <div className="mx-guide-item">
+                <span className="mx-guide-num">3</span>
+                <div><strong>Ô xám sọc</strong> — không thể chọn. Bạn chỉ đánh giá được các phòng xuất hiện <em>bên phải</em> của bạn trong danh sách.</div>
+              </div>
+              <div className="mx-guide-item">
+                <span className="mx-guide-num">4</span>
+                <div><strong>Panel bên phải</strong> — hiển thị danh sách phòng bạn đang đánh giá và các phòng đã chọn bạn ngược lại. Cột <strong>#</strong> cho biết mỗi phòng đang đánh giá bao nhiêu phòng khác.</div>
+              </div>
+              <div className="mx-guide-item">
+                <span className="mx-guide-num">5</span>
+                <div>Khi chọn xong, nhấn <strong>"Nộp ma trận"</strong> để xác nhận. Bạn vẫn có thể chỉnh sửa lại trước khi kỳ đánh giá bắt đầu bằng nút <strong>"Chỉnh sửa"</strong>.</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Locked banner (department view) ── */}
-      {isLocked && role === 'department' && (
+      {role === 'department' && (isLocked || periodStatus !== 'draft') && (
         <div className="mx-locked-banner">
           <Lock size={13} className="mx-locked-icon" />
-          <span>Ma trận đang bị khóa — quản trị viên đã tắt chức năng chỉnh sửa.</span>
+          <span>
+            {periodStatus === 'open'
+              ? 'Kỳ đánh giá đang diễn ra — ma trận đã khóa. Vui lòng tiến hành đánh giá.'
+              : periodStatus === 'closed'
+              ? 'Kỳ đánh giá đã kết thúc — ma trận bị khóa.'
+              : 'Ma trận đang bị khóa — quản trị viên đã tắt chức năng chỉnh sửa.'}
+          </span>
         </div>
       )}
 
       {/* ── Role hint ── */}
-      {role === 'department' && myDeptId && !isLocked && (
+      {role === 'department' && myDeptId && !isLocked && periodStatus === 'draft' && (
         <div className="mx-hint">
           <span className="mx-hint-dept">{depts.find(d => d.id === myDeptId) ? deptLabel(depts.find(d => d.id === myDeptId)!) : ''}</span>
           {isLastDept ? (
@@ -279,7 +424,7 @@ export default function MatrixClient({
             <thead>
               <tr>
                 <th className="mx-corner" />
-                {depts.map(d => (
+                {displayDepts.map(d => (
                   <th key={d.id} className="mx-col-head">
                     <span className="mx-col-label">{deptLabel(d)}</span>
                   </th>
@@ -290,7 +435,7 @@ export default function MatrixClient({
               </tr>
             </thead>
             <tbody>
-              {depts.map((row, ri) => {
+              {displayDepts.map((row, ri) => {
                 const isMyRow = row.id === myDeptId
                 return (
                   <tr key={row.id} className={`mx-row ${isMyRow ? 'mx-row--mine' : ''}`}>
@@ -299,7 +444,7 @@ export default function MatrixClient({
                         {deptLabel(row)}
                       </span>
                     </td>
-                    {depts.map((col, ci) => {
+                    {displayDepts.map((col, ci) => {
                       const isDiag = ri === ci
                       const isLower = ci < ri
                       const checked = hasEntry(row.id, col.id)
@@ -346,18 +491,18 @@ export default function MatrixClient({
           <div className="mx-chart-panel">
             <div className="mx-chart-header">
               <span className="mx-chart-title">Số phòng đang đánh giá</span>
-              <span className="mx-chart-sub">Tối đa {depts.length - 1}</span>
+              <span className="mx-chart-sub">Tối đa {displayDepts.length - 1}</span>
             </div>
             <div className="mx-chart-content">
               <div className="mx-chart-y-labels">
-                <span className="mx-chart-y-val">{depts.length - 1}</span>
-                <span className="mx-chart-y-val">{Math.round((depts.length - 1) / 2)}</span>
+                <span className="mx-chart-y-val">{displayDepts.length - 1}</span>
+                <span className="mx-chart-y-val">{Math.round((displayDepts.length - 1) / 2)}</span>
                 <span className="mx-chart-y-val">0</span>
               </div>
               <div className="mx-chart-bars-wrap">
-                {depts.map(d => {
+                {displayDepts.map(d => {
                   const count = evaluatingCount[d.id] ?? 0
-                  const maxCount = Math.max(depts.length - 1, 1)
+                  const maxCount = Math.max(displayDepts.length - 1, 1)
                   const pct = (count / maxCount) * 100
                   return (
                     <div key={d.id} className="mx-bar-col">
@@ -402,9 +547,86 @@ export default function MatrixClient({
                 })}
               </div>
             </div>
+
+            {/* ── Commit / Edit bar ── */}
+            {showCommitBar && (
+              <div className="mx-commit-bar">
+                <span className={`mx-commit-msg ${commitStatus === 'ok' ? 'mx-commit-msg--ok' : ''} ${commitStatus === 'err' ? 'mx-commit-msg--err' : ''}`}>
+                  {myDeptHasCommitted && !isEditing ? 'Đã nộp ma trận' : ''}
+                  {commitStatus === 'err' ? 'Lỗi — thử lại' : ''}
+                </span>
+                <button
+                  className="mx-btn mx-btn--ghost"
+                  onClick={handleEdit}
+                  disabled={isEditing || isCommitting}
+                >
+                  <Pencil size={13} /> Chỉnh sửa
+                </button>
+                <button
+                  className="mx-btn mx-btn--commit"
+                  onClick={handleCommit}
+                  disabled={!isEditing || isCommitting}
+                >
+                  <Send size={13} /> Nộp ma trận
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* ── Commit status table (admin only) ── */}
+      {canManageAll && (
+        <div className="mx-commit-section">
+          <div className="mx-commit-header">
+            <span className="mx-commit-title">Tình trạng nộp ma trận</span>
+            <span className="mx-commit-sub">
+              {displayDepts.filter(d => committedSet.has(d.id)).length}/{displayDepts.length} phòng đã nộp
+            </span>
+          </div>
+          <div className="mx-commit-table-wrap">
+            <table className="mx-commit-table">
+              <thead>
+                <tr>
+                  <th className="mx-cth">Phòng ban</th>
+                  <th className="mx-cth mx-cth--center">Số phòng chọn</th>
+                  <th className="mx-cth mx-cth--center">Tình trạng</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayDepts.map(d => {
+                  const committed = committedSet.has(d.id)
+                  const count = evaluatingCount[d.id] ?? 0
+                  return (
+                    <tr key={d.id} className={`mx-ctr ${committed ? 'mx-ctr--committed' : ''}`}>
+                      <td className="mx-ctd">
+                        <span className="mx-ctd-code">{d.code ?? d.name}</span>
+                        {d.code && d.name !== d.code && (
+                          <span className="mx-ctd-name">{d.name}</span>
+                        )}
+                      </td>
+                      <td className="mx-ctd mx-ctd--center">
+                        <span className="mx-ctd-count">{count}</span>
+                      </td>
+                      <td className="mx-ctd mx-ctd--center">
+                        {committed ? (
+                          <span className="mx-commit-badge mx-commit-badge--done">
+                            <Check size={10} /> Đã nộp
+                          </span>
+                        ) : (
+                          <span className="mx-commit-badge mx-commit-badge--pending">
+                            Chưa nộp
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* ── Reorder Modal ── */}
       {reorderOpen && (
@@ -467,6 +689,21 @@ export default function MatrixClient({
         .mx-header-left { display: flex; align-items: center; gap: 12px; }
         .mx-period { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.4); }
         .mx-stat { font-size: 12px; color: rgba(179,0,0,0.8); background: rgba(179,0,0,0.08); border: 1px solid rgba(179,0,0,0.18); padding: 2px 10px; border-radius: 20px; }
+        .mx-region-tabs { display: flex; align-items: center; gap: 2px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 3px; }
+        .mx-region-tab {
+          padding: 3px 11px; border-radius: 5px; border: none; cursor: pointer;
+          font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+          background: transparent; color: rgba(255,255,255,0.35);
+          font-family: var(--font-sans), sans-serif; transition: background 0.15s, color 0.15s;
+        }
+        .mx-region-tab:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.05); }
+        .mx-region-tab--active { background: #B30000; color: #fff; }
+        .mx-region-tab--active:hover { background: #cc0000; }
+        .mx-region-badge {
+          padding: 3px 11px; border-radius: 5px; font-size: 11px; font-weight: 700;
+          letter-spacing: 0.06em; background: #B30000; color: #fff;
+          border: none;
+        }
         .mx-header-right { display: flex; align-items: center; gap: 8px; }
         .mx-confirm-text { font-size: 12px; color: rgba(255,100,100,0.8); font-style: italic; }
         .mx-btn {
@@ -478,11 +715,16 @@ export default function MatrixClient({
         .mx-btn:hover:not(:disabled) { transform: translateY(-1px); }
         .mx-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .mx-btn--ghost { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.45); }
-        .mx-btn--ghost:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.7); }
+        .mx-btn--ghost:hover:not(:disabled) { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.7); }
         .mx-btn--danger { background: rgba(255,50,50,0.15); color: rgba(255,100,100,0.9); border: 1px solid rgba(255,50,50,0.2); }
-        .mx-btn--danger:hover { background: rgba(255,50,50,0.22); }
+        .mx-btn--danger:hover:not(:disabled) { background: rgba(255,50,50,0.22); }
         .mx-btn--locked { background: rgba(251,191,36,0.12); color: rgba(251,191,36,0.9); border: 1px solid rgba(251,191,36,0.25); }
         .mx-btn--locked:hover:not(:disabled) { background: rgba(251,191,36,0.2); }
+        .mx-btn--commit {
+          background: #B30000; color: #fff;
+          box-shadow: 0 3px 12px rgba(179,0,0,0.3);
+        }
+        .mx-btn--commit:hover:not(:disabled) { background: #cc0000; box-shadow: 0 5px 18px rgba(179,0,0,0.45); }
 
         /* Locked banner */
         .mx-locked-banner {
@@ -619,6 +861,57 @@ export default function MatrixClient({
         .mx-tag--active { background: rgba(179,0,0,0.12); color: rgba(255,120,120,0.9); border: 1px solid rgba(179,0,0,0.25); }
         .mx-tag--required { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.1); }
 
+        /* Commit bar (dept) */
+        .mx-commit-bar {
+          display: flex; align-items: center; gap: 8px;
+          padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05);
+          margin-top: auto;
+        }
+        .mx-commit-msg {
+          flex: 1; font-size: 11px; color: rgba(255,255,255,0.25); font-style: italic;
+        }
+        .mx-commit-msg--ok { color: #4ade80; font-style: normal; font-weight: 600; }
+        .mx-commit-msg--err { color: #f87171; }
+
+        /* Commit status table (admin) */
+        .mx-commit-section {
+          display: flex; flex-direction: column; gap: 12px;
+          animation: mxFadeUp 0.45s 0.15s both;
+        }
+        .mx-commit-header { display: flex; align-items: baseline; gap: 12px; }
+        .mx-commit-title { font-size: 12px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: rgba(255,255,255,0.4); font-family: monospace; }
+        .mx-commit-sub { font-size: 11px; color: rgba(179,0,0,0.7); font-weight: 600; font-family: monospace; }
+        .mx-commit-table-wrap {
+          overflow: auto; border-radius: 12px;
+          border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.015);
+          scrollbar-width: thin; scrollbar-color: rgba(179,0,0,0.15) transparent;
+        }
+        .mx-commit-table-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+        .mx-commit-table-wrap::-webkit-scrollbar-thumb { background: rgba(179,0,0,0.15); border-radius: 4px; }
+        .mx-commit-table { width: 100%; border-collapse: collapse; }
+        .mx-cth {
+          padding: 9px 16px; text-align: left;
+          font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+          color: rgba(255,255,255,0.25); border-bottom: 1px solid rgba(255,255,255,0.06);
+          white-space: nowrap; position: sticky; top: 0; background: #0e0e0e; z-index: 1;
+        }
+        .mx-cth--center { text-align: center; }
+        .mx-ctr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; }
+        .mx-ctr:hover { background: rgba(255,255,255,0.02); }
+        .mx-ctr:last-child { border-bottom: none; }
+        .mx-ctr--committed { background: rgba(74,222,128,0.02); }
+        .mx-ctd { padding: 10px 16px; vertical-align: middle; }
+        .mx-ctd--center { text-align: center; }
+        .mx-ctd-code { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,0.65); letter-spacing: 0.04em; }
+        .mx-ctd-name { font-size: 11px; color: rgba(255,255,255,0.3); margin-left: 6px; }
+        .mx-ctd-count { font-size: 13px; font-weight: 600; color: rgba(179,0,0,0.8); }
+        .mx-commit-badge {
+          display: inline-flex; align-items: center; gap: 4px;
+          padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 500;
+        }
+        .mx-commit-badge--done { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); }
+        .mx-commit-badge--pending { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.08); }
+
         .mx-btn--primary { background: rgba(179,0,0,0.2); color: rgba(255,120,120,0.9); border: 1px solid rgba(179,0,0,0.25); }
         .mx-btn--primary:hover:not(:disabled) { background: rgba(179,0,0,0.3); }
 
@@ -665,9 +958,45 @@ export default function MatrixClient({
           padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.07);
         }
 
+        /* Guide panel */
+        .mx-guide {
+          border: 1px solid rgba(179,0,0,0.15); border-radius: 10px;
+          overflow: hidden; background: rgba(179,0,0,0.03);
+          animation: mxFadeUp 0.4s 0.03s both;
+        }
+        .mx-guide-toggle {
+          width: 100%; display: flex; align-items: center; gap: 8px;
+          padding: 10px 14px; background: none; border: none; cursor: pointer;
+          font-size: 12px; font-weight: 600; color: rgba(179,0,0,0.75);
+          font-family: var(--font-sans), sans-serif; text-align: left;
+          transition: background 0.15s;
+        }
+        .mx-guide-toggle:hover { background: rgba(179,0,0,0.04); }
+        .mx-guide-icon { flex-shrink: 0; }
+        .mx-guide-chevron { margin-left: auto; color: rgba(179,0,0,0.45); transition: transform 0.2s; }
+        .mx-guide-chevron--open { transform: rotate(180deg); }
+        .mx-guide-body {
+          padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 8px;
+          border-top: 1px solid rgba(179,0,0,0.1);
+        }
+        .mx-guide-item {
+          display: flex; align-items: flex-start; gap: 10px;
+          font-size: 12px; color: rgba(255,255,255,0.45); line-height: 1.55;
+        }
+        .mx-guide-item strong { color: rgba(255,255,255,0.7); font-weight: 600; }
+        .mx-guide-item em { color: rgba(179,0,0,0.8); font-style: normal; font-weight: 600; }
+        .mx-guide-num {
+          flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%;
+          background: rgba(179,0,0,0.15); border: 1px solid rgba(179,0,0,0.25);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 10px; font-weight: 700; color: rgba(179,0,0,0.9);
+          margin-top: 1px; font-family: monospace;
+        }
+
         /* ── Light mode ── */
         [data-theme="light"] .mx-period { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mx-btn--ghost { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .mx-btn--ghost:hover:not(:disabled) { background: rgba(0,0,0,0.09); color: rgba(0,0,0,0.7); }
         [data-theme="light"] .mx-hint { color: rgba(0,0,0,0.4); background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); }
         [data-theme="light"] .mx-grid-wrap { background: #fff; border-color: rgba(0,0,0,0.08); }
         [data-theme="light"] .mx-corner { background: #f5f5f5; border-right-color: rgba(0,0,0,0.07); border-bottom-color: rgba(0,0,0,0.07); }
@@ -717,6 +1046,22 @@ export default function MatrixClient({
         [data-theme="light"] .mx-drag-code { color: rgba(0,0,0,0.4); background: rgba(0,0,0,0.05); }
         [data-theme="light"] .mx-btn--primary { background: rgba(179,0,0,0.1); color: #B30000; border-color: rgba(179,0,0,0.2); }
         [data-theme="light"] .mx-btn--primary:hover:not(:disabled) { background: rgba(179,0,0,0.18); }
+        [data-theme="light"] .mx-commit-section .mx-commit-title { color: rgba(0,0,0,0.45); }
+        [data-theme="light"] .mx-commit-table-wrap { border-color: rgba(0,0,0,0.08); background: #fff; }
+        [data-theme="light"] .mx-cth { background: #f5f5f5; color: rgba(0,0,0,0.4); border-bottom-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .mx-ctr { border-bottom-color: rgba(0,0,0,0.05); }
+        [data-theme="light"] .mx-ctr:hover { background: rgba(0,0,0,0.02); }
+        [data-theme="light"] .mx-ctd-code { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .mx-ctd-name { color: rgba(0,0,0,0.35); }
+        [data-theme="light"] .mx-commit-badge--pending { background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.35); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .mx-commit-bar { border-top-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .mx-commit-msg { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .mx-guide { background: rgba(179,0,0,0.02); border-color: rgba(179,0,0,0.12); }
+        [data-theme="light"] .mx-guide-toggle { color: rgba(179,0,0,0.8); }
+        [data-theme="light"] .mx-guide-body { border-top-color: rgba(179,0,0,0.08); }
+        [data-theme="light"] .mx-guide-item { color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .mx-guide-item strong { color: rgba(0,0,0,0.75); }
+        [data-theme="light"] .mx-guide-num { background: rgba(179,0,0,0.08); border-color: rgba(179,0,0,0.18); }
       `}</style>
     </div>
   )

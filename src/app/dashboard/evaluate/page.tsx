@@ -34,16 +34,36 @@ export default async function EvaluatePage() {
     )
   }
 
-  const [criteriaResult, deptsResult] = await Promise.all([
-    supabase
-      .from('criteria')
-      .select('id, code, name, weight, input_type, auto_source, display_order')
-      .eq('period_id', period.id)
-      .order('display_order'),
+  if (period.status === 'draft' && role === 'department') {
+    return (
+      <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
+        Kỳ đánh giá chưa bắt đầu. Vui lòng cấu hình ma trận và chờ quản trị viên mở kỳ đánh giá.
+      </div>
+    )
+  }
 
+  // Determine region for criteria filtering (dept/leadership see only their region)
+  let myRegion: string | null = null
+  if (isLeader) {
+    const { data: ldr } = await supabase.from('users').select('region').eq('id', leaderId).maybeSingle()
+    myRegion = ldr?.region ?? 'Miền Bắc'
+  } else if (role === 'department' && myDeptId) {
+    const { data: dept } = await supabase.from('departments').select('region').eq('id', myDeptId).maybeSingle()
+    myRegion = dept?.region ?? 'Miền Bắc'
+  }
+
+  let criteriaBaseQ = supabase
+    .from('criteria')
+    .select('id, code, name, weight, input_type, auto_source, display_order')
+    .eq('period_id', period.id)
+    .order('display_order')
+  if (myRegion) criteriaBaseQ = criteriaBaseQ.eq('region', myRegion) as typeof criteriaBaseQ
+
+  const [criteriaResult, deptsResult] = await Promise.all([
+    criteriaBaseQ,
     supabase
       .from('departments')
-      .select('id, name, code')
+      .select('id, name, code, region')
       .order('name'),
   ])
 
@@ -52,7 +72,9 @@ export default async function EvaluatePage() {
   // Matrix: leaders evaluate all departments as themselves
   let matrix: MatrixEntry[] = []
   if (isLeader) {
-    matrix = depts.map(d => ({ evaluator_id: leaderId, target_id: d.id }))
+    matrix = depts
+      .filter(d => !myRegion || (d.region ?? 'Miền Bắc') === myRegion)
+      .map(d => ({ evaluator_id: leaderId, target_id: d.id }))
   } else if (role === 'department' && myDeptId) {
     const { data } = await supabase
       .from('evaluation_matrix')
@@ -107,6 +129,7 @@ export default async function EvaluatePage() {
     <EvaluateClient
       periodId={period.id}
       periodLabel={`Quý ${period.quarter} · ${period.year}`}
+      periodStatus={period.status as 'draft' | 'open' | 'closed'}
       criteria={(criteriaResult.data ?? []) as Criterion[]}
       depts={depts}
       matrix={matrix}

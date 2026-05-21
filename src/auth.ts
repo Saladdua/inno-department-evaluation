@@ -1,4 +1,5 @@
 import NextAuth from 'next-auth'
+import Google from 'next-auth/providers/google'
 import Credentials from 'next-auth/providers/credentials'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { User } from 'next-auth'
@@ -17,9 +18,9 @@ declare module 'next-auth' {
     }
   }
   interface User {
-    role: UserRole
-    departmentId: string | null
-    departmentName: string | null
+    role?: UserRole
+    departmentId?: string | null
+    departmentName?: string | null
   }
   interface JWT {
     role: UserRole
@@ -28,42 +29,35 @@ declare module 'next-auth' {
   }
 }
 
+const isDev = process.env.NODE_ENV === 'development'
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers: [
-    Credentials({
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    }),
+    // Dev-only: log in as any DB user by email, no password needed
+    ...(isDev ? [Credentials({
+      id: 'dev-credentials',
+      name: 'Dev Login',
       credentials: {
         email: { label: 'Email', type: 'email' },
-        password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials): Promise<User | null> {
-        if (!credentials?.email || !credentials?.password) return null
-
+        if (!credentials?.email) return null
         const supabase = createServiceClient()
-
-        const { data: user, error } = await supabase
+        const { data: user } = await supabase
           .from('users')
-          .select('id, name, email, role, department_id, password_hash, departments(name)')
+          .select('id, name, email, role, department_id, departments(name)')
           .eq('email', credentials.email as string)
           .maybeSingle()
-
-        if (error) {
-          console.error('[auth] DB error:', error.message)
-          return null
-        }
-        if (!user) {
-          console.error('[auth] No user found for email:', credentials.email)
-          return null
-        }
-
-        if (user.password_hash !== (credentials.password as string)) {
-          console.error('[auth] Wrong password for:', credentials.email)
-          return null
-        }
-
+        if (!user) return null
         const deptRaw = user.departments
-        const dept = Array.isArray(deptRaw) ? (deptRaw[0] as { name: string } | undefined) : (deptRaw as { name: string } | null)
-
+        const dept = Array.isArray(deptRaw)
+          ? (deptRaw[0] as { name: string } | undefined)
+          : (deptRaw as { name: string } | null)
         return {
           id: user.id,
           name: user.name,
@@ -73,17 +67,53 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           departmentName: dept?.name ?? null,
         }
       },
-    }),
+    })] : []),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user) {
-        token['role'] = user.role
-        token['departmentId'] = user.departmentId
-        token['departmentName'] = user.departmentName
+    async signIn({ user, account }) {
+      // Dev credentials: already validated in authorize()
+      if (account?.provider === 'dev-credentials') return true
+      // Google: whitelist check
+      if (account?.provider !== 'google') return false
+      if (!user.email) return false
+      const supabase = createServiceClient()
+      const { data } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', user.email)
+        .maybeSingle()
+      return !!data
+    },
+
+    async jwt({ token, account, user }) {
+      if (account?.provider === 'google' && user?.email) {
+        // Fetch DB user data on first Google sign-in
+        const supabase = createServiceClient()
+        const { data } = await supabase
+          .from('users')
+          .select('id, role, department_id, departments(name)')
+          .eq('email', user.email)
+          .maybeSingle()
+        if (data) {
+          token.sub = data.id
+          token['role'] = data.role
+          token['departmentId'] = data.department_id ?? null
+          const deptRaw = data.departments
+          const dept = Array.isArray(deptRaw)
+            ? (deptRaw[0] as { name: string } | undefined)
+            : (deptRaw as { name: string } | null)
+          token['departmentName'] = dept?.name ?? null
+        }
+      } else if (account?.provider === 'dev-credentials' && user) {
+        // Dev credentials: user object already has everything
+        token.sub = user.id
+        token['role'] = user.role!
+        token['departmentId'] = user.departmentId ?? null
+        token['departmentName'] = user.departmentName ?? null
       }
       return token
     },
+
     session({ session, token }) {
       session.user.id = token.sub!
       session.user.role = token['role'] as UserRole
