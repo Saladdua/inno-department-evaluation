@@ -1,11 +1,15 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
-import { getSelectedPeriod } from '@/lib/selected-period'
 import DetailClient from './DetailClient'
 import type { CriterionInfo, EvaluatorEntry, TargetData } from './DetailClient'
 
-export default async function ResultsDetailPage() {
+export default async function ResultsDetailPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ year?: string; quarter?: string }>
+}) {
+  const { year: yearParam, quarter: quarterParam } = await searchParams
   const session = await auth()
   if (!session) redirect('/login')
 
@@ -15,12 +19,43 @@ export default async function ResultsDetailPage() {
 
   const supabase = createServiceClient()
 
-  const period = await getSelectedPeriod()
+  const { data: periodsData } = await supabase
+    .from('evaluation_periods')
+    .select('id, quarter, year, status')
+    .order('year', { ascending: false })
+    .order('quarter', { ascending: false })
+  const periods = periodsData ?? []
+
+  if (periods.length === 0) {
+    return (
+      <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
+        Chưa có kỳ đánh giá nào được thiết lập.
+      </div>
+    )
+  }
+
+  const years = [...new Set(periods.map(p => p.year as number))].sort((a, b) => b - a)
+
+  let activeYear: number
+  let activeQuarter: number
+
+  if (yearParam && quarterParam) {
+    activeYear = Number(yearParam)
+    activeQuarter = Number(quarterParam)
+  } else {
+    const latest = periods[0]
+    activeYear = latest.year
+    activeQuarter = latest.quarter
+  }
+
+  const period = periods.find(p => p.year === activeYear && p.quarter === activeQuarter) ?? periods[0]
+  activeYear = period.year
+  activeQuarter = period.quarter
 
   if (!period) {
     return (
       <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
-        Chưa có kỳ đánh giá nào được thiết lập.
+        Không tìm thấy kỳ đánh giá.
       </div>
     )
   }
@@ -108,6 +143,10 @@ export default async function ResultsDetailPage() {
       targets={targets}
       role={role}
       myRegion={myRegion}
+      periods={periods.map(p => ({ id: p.id, quarter: p.quarter, year: p.year, status: p.status }))}
+      activeYear={activeYear}
+      activeQuarter={activeQuarter}
+      years={years}
     />
   )
 }

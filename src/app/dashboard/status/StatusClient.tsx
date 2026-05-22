@@ -15,6 +15,7 @@ export interface DeptStat {
   dueCount: number
   doneCount: number
   draftCount: number
+  submittedTargetCodes: string[]
   pendingTargetCodes: string[]
   incomingDone: number
   incomingTotal: number
@@ -29,9 +30,14 @@ export interface OverallStats {
 }
 
 export interface LeaderStat {
+  id: string
+  name: string
+  region: string
   submittedCount: number
   draftCount: number
   totalTasks: number
+  submittedTargetCodes: string[]
+  pendingTargetCodes: string[]
 }
 
 export interface PeriodOption {
@@ -51,7 +57,7 @@ interface Props {
   overall: OverallStats
   canManageAll: boolean
   isSuperAdmin: boolean
-  leaderStatByRegion: Record<string, LeaderStat>
+  leaders: LeaderStat[]
   deptAvgScore?: number | null
   deptMaxScore?: number
   myRegion?: string | null
@@ -232,7 +238,7 @@ export default function StatusClient({
   overall,
   canManageAll,
   isSuperAdmin,
-  leaderStatByRegion,
+  leaders,
   deptAvgScore,
   deptMaxScore = 0,
   myRegion = null,
@@ -269,9 +275,8 @@ export default function StatusClient({
   const pendingCount = displayStats.filter(s => getStatus(s) === 'not_started').length
   const myStats = stats.find(s => s.isMyDept)
 
-  // Pick the leader stat for the currently visible region
   const activeRegion = canManageAll ? regionFilter : (myStats?.region ?? 'Miền Bắc')
-  const leaderStat: LeaderStat = leaderStatByRegion[activeRegion] ?? { submittedCount: 0, draftCount: 0, totalTasks: 0 }
+  const displayLeaders = leaders.filter(l => l.region === activeRegion)
 
   const isOverdue = localStatus === 'open' && endDate && new Date(endDate) < new Date()
 
@@ -498,48 +503,76 @@ export default function StatusClient({
           <thead>
             <tr>
               <th className="st-th th-dept">Phòng ban</th>
-              <th className="st-th th-progress">Tiến độ nộp</th>
               <th className="st-th th-status">Tình trạng</th>
-              {canManageAll && <th className="st-th th-pending">Còn chờ nộp</th>}
+              <th className="st-th th-done">Đã đánh giá</th>
+              <th className="st-th th-pending">Chưa đánh giá</th>
             </tr>
           </thead>
           <tbody>
-            {/* ── Leader row (visible to all roles) ── */}
-            {leaderStat.totalTasks > 0 && (() => {
-              const lPct      = leaderStat.totalTasks > 0 ? (leaderStat.submittedCount / leaderStat.totalTasks) * 100 : 0
-              const lDraftPct = leaderStat.totalTasks > 0 ? (leaderStat.draftCount / leaderStat.totalTasks) * 100 : 0
-              const lStatus: Status = leaderStat.submittedCount === leaderStat.totalTasks ? 'done'
-                : leaderStat.submittedCount > 0 || leaderStat.draftCount > 0 ? 'in_progress'
+            {/* ── One row per leader ── */}
+            {displayLeaders.map(l => {
+              const lStatus: Status = l.totalTasks === 0 ? 'none'
+                : l.submittedCount === l.totalTasks ? 'done'
+                : l.submittedCount > 0 || l.draftCount > 0 ? 'in_progress'
                 : 'not_started'
               return (
-                <tr className="st-tr st-tr--leader">
+                <tr key={l.id} className="st-tr st-tr--leader">
                   <td className="st-td td-dept">
-                    <span className="st-dept-code st-dept-code--leader">Ban lãnh đạo</span>
-                  </td>
-                  <td className="st-td td-progress">
-                    <div className="st-prog-wrap">
-                      <div className="st-prog-track">
-                        <div className="st-prog-fill" style={{ width: `${lPct}%` }} />
-                        <div className="st-prog-draft" style={{ width: `${lDraftPct}%`, left: `${lPct}%` }} />
-                      </div>
-                      <span className="st-prog-nums">
-                        <span className={`st-prog-done ${lStatus === 'done' ? 'st-prog-done--full' : ''}`}>{leaderStat.submittedCount}</span>
-                        <span className="st-prog-total">/{leaderStat.totalTasks}</span>
-                      </span>
-                    </div>
+                    <span className="st-dept-code st-dept-code--leader">{l.name}</span>
+                    <span className="st-leader-badge">Lãnh đạo</span>
                   </td>
                   <td className="st-td td-status">
                     <span className={`st-badge st-badge--${lStatus}`}>{STATUS_LABEL[lStatus]}</span>
                   </td>
-                  {canManageAll && <td className="st-td td-pending"><span className="st-pending-none">—</span></td>}
+                  <td className="st-td td-done">
+                    {l.submittedCount === 0 ? (
+                      <span className="st-pending-none">—</span>
+                    ) : (
+                      <div className="st-count-cell">
+                        <span className="st-count-nums">
+                          <span className={`st-count-done${lStatus === 'done' ? ' st-count-done--full' : ''}`}>{l.submittedCount}</span>
+                          <span className="st-count-total">/{l.totalTasks}</span>
+                        </span>
+                        {l.submittedTargetCodes.length > 0 && (
+                          <div className="st-tags">
+                            {l.submittedTargetCodes.slice(0, 5).map(code => (
+                              <span key={code} className="st-tag st-tag--done">{code}</span>
+                            ))}
+                            {l.submittedTargetCodes.length > 5 && (
+                              <span className="st-tag st-tag--more">+{l.submittedTargetCodes.length - 5}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td className="st-td td-pending">
+                    {l.pendingTargetCodes.length === 0 ? (
+                      <span className="st-pending-none">—</span>
+                    ) : (
+                      <div className="st-count-cell">
+                        <span className="st-count-nums">
+                          <span className="st-count-pending">{l.pendingTargetCodes.length}</span>
+                          <span className="st-count-total">/{l.totalTasks}</span>
+                        </span>
+                        <div className="st-tags">
+                          {l.pendingTargetCodes.slice(0, 5).map(code => (
+                            <span key={code} className="st-tag">{code}</span>
+                          ))}
+                          {l.pendingTargetCodes.length > 5 && (
+                            <span className="st-tag st-tag--more">+{l.pendingTargetCodes.length - 5}</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               )
-            })()}
+            })}
 
             {displayStats.map(s => {
               const status = getStatus(s)
-              const pct = s.dueCount > 0 ? (s.doneCount / s.dueCount) * 100 : 0
-              const draftPct = s.dueCount > 0 ? (s.draftCount / s.dueCount) * 100 : 0
+              const pendingCount = s.dueCount - s.doneCount
 
               return (
                 <tr key={s.id} className={`st-tr ${s.isMyDept ? 'st-tr--mine' : ''}`}>
@@ -550,41 +583,57 @@ export default function StatusClient({
                     {s.isMyDept && <span className="st-you-badge">bạn</span>}
                   </td>
 
-                  <td className="st-td td-progress">
-                    <div className="st-prog-wrap">
-                      <div className="st-prog-track">
-                        <div className="st-prog-fill" style={{ width: `${pct}%` }} />
-                        <div className="st-prog-draft" style={{ width: `${draftPct}%`, left: `${pct}%` }} />
-                      </div>
-                      <span className="st-prog-nums">
-                        <span className={`st-prog-done ${status === 'done' ? 'st-prog-done--full' : ''}`}>{s.doneCount}</span>
-                        <span className="st-prog-total">/{s.dueCount}</span>
-                      </span>
-                    </div>
-                  </td>
-
                   <td className="st-td td-status">
                     <span className={`st-badge st-badge--${status}`}>
                       {STATUS_LABEL[status]}
                     </span>
                   </td>
 
-                  {canManageAll && (
-                    <td className="st-td td-pending">
-                      {s.pendingTargetCodes.length === 0 ? (
-                        <span className="st-pending-none">—</span>
-                      ) : (
-                        <div className="st-tags">
-                          {s.pendingTargetCodes.slice(0, 5).map(code => (
-                            <span key={code} className="st-tag">{code}</span>
-                          ))}
-                          {s.pendingTargetCodes.length > 5 && (
-                            <span className="st-tag st-tag--more">+{s.pendingTargetCodes.length - 5}</span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  )}
+                  <td className="st-td td-done">
+                    {s.doneCount === 0 ? (
+                      <span className="st-pending-none">—</span>
+                    ) : (
+                      <div className="st-count-cell">
+                        <span className="st-count-nums">
+                          <span className={`st-count-done${status === 'done' ? ' st-count-done--full' : ''}`}>{s.doneCount}</span>
+                          <span className="st-count-total">/{s.dueCount}</span>
+                        </span>
+                        {s.submittedTargetCodes.length > 0 && (
+                          <div className="st-tags">
+                            {s.submittedTargetCodes.slice(0, 5).map(code => (
+                              <span key={code} className="st-tag st-tag--done">{code}</span>
+                            ))}
+                            {s.submittedTargetCodes.length > 5 && (
+                              <span className="st-tag st-tag--more">+{s.submittedTargetCodes.length - 5}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="st-td td-pending">
+                    {pendingCount === 0 ? (
+                      <span className="st-pending-none">—</span>
+                    ) : (
+                      <div className="st-count-cell">
+                        <span className="st-count-nums">
+                          <span className="st-count-pending">{pendingCount}</span>
+                          <span className="st-count-total">/{s.dueCount}</span>
+                        </span>
+                        {s.pendingTargetCodes.length > 0 && (
+                          <div className="st-tags">
+                            {s.pendingTargetCodes.slice(0, 5).map(code => (
+                              <span key={code} className="st-tag">{code}</span>
+                            ))}
+                            {s.pendingTargetCodes.length > 5 && (
+                              <span className="st-tag st-tag--more">+{s.pendingTargetCodes.length - 5}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               )
             })}
@@ -761,14 +810,14 @@ export default function StatusClient({
           color: rgba(255,255,255,0.25); border-bottom: 1px solid rgba(255,255,255,0.06);
           white-space: nowrap; position: sticky; top: 0; background: #0e0e0e; z-index: 1;
         }
-        .th-progress, .th-incoming { width: 180px; }
-        .th-status { width: 130px; }
+        .th-status { width: 120px; }
+        .th-done, .th-pending { width: 200px; }
         .st-tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; }
         .st-tr:hover { background: rgba(255,255,255,0.025); }
         .st-tr:last-child { border-bottom: none; }
         .st-tr--mine { background: rgba(179,0,0,0.04); }
         .st-tr--mine:hover { background: rgba(179,0,0,0.07); }
-        .st-tr--leader { background: rgba(251,191,36,0.03); border-bottom: 2px solid rgba(255,255,255,0.06); }
+        .st-tr--leader { background: rgba(251,191,36,0.03); border-bottom: 1px solid rgba(255,255,255,0.06); }
         .st-tr--leader:hover { background: rgba(251,191,36,0.06); }
         .st-dept-code--leader { color: rgba(251,191,36,0.8); font-style: italic; }
         .st-td { padding: 11px 16px; vertical-align: middle; }
@@ -783,32 +832,21 @@ export default function StatusClient({
           background: rgba(179,0,0,0.15); color: rgba(179,0,0,0.9);
           border: 1px solid rgba(179,0,0,0.2); vertical-align: middle;
         }
+        .st-leader-badge {
+          display: inline-block; margin-left: 6px;
+          font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+          padding: 1px 6px; border-radius: 4px;
+          background: rgba(251,191,36,0.1); color: rgba(251,191,36,0.7);
+          border: 1px solid rgba(251,191,36,0.18); vertical-align: middle;
+        }
 
-        .td-progress, .td-incoming { min-width: 160px; }
-        .st-prog-wrap, .st-incoming-wrap { display: flex; align-items: center; gap: 10px; }
-        .st-prog-track, .st-in-track {
-          flex: 1; height: 4px; background: rgba(255,255,255,0.06);
-          border-radius: 2px; overflow: visible; position: relative;
-        }
-        .st-prog-fill {
-          position: absolute; top: 0; left: 0; height: 100%;
-          background: #B30000; border-radius: 2px;
-          transition: width 0.4s cubic-bezier(0.34,1.56,0.64,1);
-          box-shadow: 0 0 5px rgba(179,0,0,0.4);
-        }
-        .st-prog-draft {
-          position: absolute; top: 0; height: 100%;
-          background: rgba(251,191,36,0.5); border-radius: 2px; transition: width 0.4s;
-        }
-        .st-in-fill {
-          position: absolute; top: 0; left: 0; height: 100%;
-          background: rgba(255,255,255,0.2); border-radius: 2px;
-          transition: width 0.4s cubic-bezier(0.34,1.56,0.64,1);
-        }
-        .st-prog-nums, .st-in-nums { white-space: nowrap; }
-        .st-prog-done, .st-in-done { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.6); }
-        .st-prog-done--full { color: #4ade80; }
-        .st-prog-total, .st-in-total { font-size: 12px; color: rgba(255,255,255,0.25); }
+        .td-done, .td-pending { min-width: 160px; }
+        .st-count-cell { display: flex; flex-direction: column; gap: 5px; }
+        .st-count-nums { display: flex; align-items: baseline; gap: 1px; }
+        .st-count-done { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.65); }
+        .st-count-done--full { color: #4ade80; }
+        .st-count-pending { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.4); }
+        .st-count-total { font-size: 12px; color: rgba(255,255,255,0.2); }
 
         .st-badge {
           display: inline-flex; align-items: center; gap: 4px;
@@ -829,6 +867,7 @@ export default function StatusClient({
           border: 1px solid rgba(255,255,255,0.08);
         }
         .st-tag--more { background: rgba(179,0,0,0.08); color: rgba(179,0,0,0.7); border-color: rgba(179,0,0,0.15); }
+        .st-tag--done { background: rgba(74,222,128,0.07); color: rgba(74,222,128,0.65); border-color: rgba(74,222,128,0.14); }
 
         @media (max-width: 768px) {
           .st-cards { grid-template-columns: repeat(2, 1fr); }
@@ -883,17 +922,15 @@ export default function StatusClient({
         [data-theme="light"] .st-tr--leader { background: rgba(180,130,0,0.04); }
         [data-theme="light"] .st-dept-code--leader { color: rgba(140,90,0,0.8); }
         [data-theme="light"] .st-dept-code { color: rgba(0,0,0,0.6); }
-        [data-theme="light"] .st-prog-track,
-        [data-theme="light"] .st-in-track { background: rgba(0,0,0,0.09); }
-        [data-theme="light"] .st-in-fill { background: rgba(0,0,0,0.18); }
-        [data-theme="light"] .st-prog-done,
-        [data-theme="light"] .st-in-done { color: rgba(0,0,0,0.7); }
-        [data-theme="light"] .st-prog-done--full { color: #16a34a; }
-        [data-theme="light"] .st-prog-total,
-        [data-theme="light"] .st-in-total { color: rgba(0,0,0,0.35); }
+        [data-theme="light"] .st-leader-badge { background: rgba(180,130,0,0.08); color: rgba(140,90,0,0.7); border-color: rgba(180,130,0,0.18); }
+        [data-theme="light"] .st-count-done { color: rgba(0,0,0,0.7); }
+        [data-theme="light"] .st-count-done--full { color: #16a34a; }
+        [data-theme="light"] .st-count-pending { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .st-count-total { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .st-badge--not_started { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.4); border-color: rgba(0,0,0,0.08); }
         [data-theme="light"] .st-badge--none { color: rgba(0,0,0,0.2); border: none; }
         [data-theme="light"] .st-tag { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.09); color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .st-tag--done { background: rgba(22,163,74,0.07); color: rgba(22,163,74,0.8); border-color: rgba(22,163,74,0.14); }
         [data-theme="light"] .st-tag--more { background: rgba(179,0,0,0.06); color: rgba(140,0,0,0.7); border-color: rgba(179,0,0,0.12); }
         [data-theme="light"] .st-pending-none { color: rgba(0,0,0,0.25); }
       `}</style>

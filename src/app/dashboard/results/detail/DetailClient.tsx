@@ -1,6 +1,14 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+
+export interface PeriodOption {
+  id: string
+  quarter: number
+  year: number
+  status: string
+}
 
 export interface CriterionInfo {
   id: string
@@ -38,6 +46,10 @@ interface Props {
   targets: TargetData[]
   role?: 'super_admin' | 'leadership' | 'department'
   myRegion?: string | null
+  periods?: PeriodOption[]
+  activeYear?: number
+  activeQuarter?: number
+  years?: number[]
 }
 
 function fmt(n: number | null, d = 2) {
@@ -49,9 +61,25 @@ function avg(vals: (number | null)[]) {
   return nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : null
 }
 
-export default function DetailClient({ periodLabel, criteria, targets, role, myRegion = null }: Props) {
+export default function DetailClient({ periodLabel, criteria, targets, role, myRegion = null, periods = [], activeYear, activeQuarter, years = [] }: Props) {
   const isDept = role === 'department'
   const canManageAll = role === 'super_admin' || role === 'leadership'
+  const router = useRouter()
+
+  const quartersForYear = periods
+    .filter(p => p.year === activeYear)
+    .map(p => p.quarter)
+    .sort((a, b) => a - b)
+
+  function handleYearChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const y = Number(e.target.value)
+    const firstQ = periods.filter(p => p.year === y).map(p => p.quarter).sort((a, b) => a - b)[0]
+    if (firstQ != null) router.push(`/dashboard/results/detail?year=${y}&quarter=${firstQ}`)
+  }
+
+  function handleQuarterChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    router.push(`/dashboard/results/detail?year=${activeYear}&quarter=${e.target.value}`)
+  }
 
   const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
     (myRegion as 'Miền Bắc' | 'Miền Nam') ?? 'Miền Bắc'
@@ -125,6 +153,16 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
         <div className="dt-header-left">
           <span className="dt-period">{periodLabel}</span>
           <span className="dt-sub">Kết quả chi tiết</span>
+          {years.length > 0 && (
+            <div className="dt-period-filters">
+              <select className="dt-period-select" value={activeYear} onChange={handleYearChange}>
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <select className="dt-period-select" value={activeQuarter} onChange={handleQuarterChange}>
+                {quartersForYear.map(q => <option key={q} value={q}>Quý {q}</option>)}
+              </select>
+            </div>
+          )}
           {myRegion === null ? (
             <div className="dt-region-tabs">
               {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
@@ -276,7 +314,18 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
         .dt-header {
           display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
         }
-        .dt-header-left { display: flex; align-items: baseline; gap: 10px; }
+        .dt-header-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .dt-period-filters { display: flex; align-items: center; gap: 6px; }
+        .dt-period-select {
+          background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 7px; padding: 5px 10px; font-size: 12px; font-weight: 600;
+          color: rgba(255,255,255,0.75); font-family: var(--font-sans), sans-serif;
+          outline: none; cursor: pointer; transition: border-color 0.15s;
+        }
+        .dt-period-select:focus { border-color: rgba(179,0,0,0.5); }
+        .dt-period-select option { background: #1a1a1a; }
+        [data-theme="light"] .dt-period-select { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.75); }
+        [data-theme="light"] .dt-period-select option { background: #fff; color: #1a1a1a; }
         .dt-period {
           font-size: 12px; font-weight: 700; letter-spacing: 0.1em;
           text-transform: uppercase; color: rgba(255,255,255,0.4);

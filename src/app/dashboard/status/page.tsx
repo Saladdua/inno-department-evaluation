@@ -45,38 +45,55 @@ export default async function StatusPage() {
     supabase.from('departments').select('id, name, code, region').order('name'),
     supabase.from('evaluation_matrix').select('evaluator_id, target_id').eq('period_id', period.id),
     supabase.from('evaluations').select('evaluator_id, target_id, status').eq('period_id', period.id),
-    supabase.from('users').select('id, region').eq('role', 'leadership'),
+    supabase.from('users').select('id, name, region').eq('role', 'leadership'),
   ])
 
-  const depts   = deptsResult.data ?? []
-  const matrix  = matrixResult.data ?? []
-  const evals   = evalsResult.data ?? []
-  const leaders = leadersResult.data ?? []
+  const depts      = deptsResult.data ?? []
+  const matrix     = matrixResult.data ?? []
+  const evals      = evalsResult.data ?? []
+  const rawLeaders = leadersResult.data ?? []
 
-  // Group leaders by region
+  // Group leaders by region (for incomingTotal computation)
   const leaderIdsByRegion: Record<string, Set<string>> = {}
-  for (const l of leaders) {
+  for (const l of rawLeaders) {
     const r = l.region ?? 'Miền Bắc'
     if (!leaderIdsByRegion[r]) leaderIdsByRegion[r] = new Set()
     leaderIdsByRegion[r].add(l.id)
   }
 
-  // Compute per-region leader stats
-  const REGIONS = ['Miền Bắc', 'Miền Nam'] as const
-  const leaderStatByRegion: Record<string, LeaderStat> = {}
   let totalLeaderTasks = 0
-  for (const r of REGIONS) {
+  for (const r of ['Miền Bắc', 'Miền Nam'] as const) {
     const regionLeaderIds = leaderIdsByRegion[r] ?? new Set<string>()
     const regionDepts = depts.filter(d => (d.region ?? 'Miền Bắc') === r)
-    const regionLeaderEvals = evals.filter(e => regionLeaderIds.has(e.evaluator_id))
-    const tasks = regionLeaderIds.size * regionDepts.length
-    leaderStatByRegion[r] = {
-      submittedCount: regionLeaderEvals.filter(e => e.status === 'submitted').length,
-      draftCount:     regionLeaderEvals.filter(e => e.status === 'draft').length,
-      totalTasks:     tasks,
-    }
-    totalLeaderTasks += tasks
+    totalLeaderTasks += regionLeaderIds.size * regionDepts.length
   }
+
+  // Compute per-leader stats
+  const leaders: LeaderStat[] = rawLeaders.map(l => {
+    const region = l.region ?? 'Miền Bắc'
+    const regionDepts = depts.filter(d => (d.region ?? 'Miền Bắc') === region)
+    const leaderEvals = evals.filter(e => e.evaluator_id === l.id)
+    const submittedEvals = leaderEvals.filter(e => e.status === 'submitted')
+    const submittedTargetIds = new Set(submittedEvals.map(e => e.target_id))
+    const submittedTargetCodes = regionDepts
+      .filter(d => submittedTargetIds.has(d.id))
+      .map(d => d.code ?? d.name)
+      .sort()
+    const pendingTargetCodes = regionDepts
+      .filter(d => !submittedTargetIds.has(d.id))
+      .map(d => d.code ?? d.name)
+      .sort()
+    return {
+      id: l.id,
+      name: l.name,
+      region,
+      submittedCount: submittedEvals.length,
+      draftCount: leaderEvals.filter(e => e.status === 'draft').length,
+      totalTasks: regionDepts.length,
+      submittedTargetCodes,
+      pendingTargetCodes,
+    }
+  })
 
   const deptIds   = new Set(depts.map(d => d.id))
   const totalTasks = matrix.length + totalLeaderTasks
@@ -93,6 +110,11 @@ export default async function StatusPage() {
     const doneCount  = [...evalMap.values()].filter(s => s === 'submitted').length
     const draftCnt   = [...evalMap.values()].filter(s => s === 'draft').length
 
+    const submittedTargetCodes = outgoing
+      .filter(m => evalMap.get(m.target_id) === 'submitted')
+      .map(m => depts.find(d => d.id === m.target_id)?.code ?? depts.find(d => d.id === m.target_id)?.name ?? m.target_id)
+      .sort()
+
     const pendingTargetCodes = outgoing
       .filter(m => !evalMap.has(m.target_id))
       .map(m => depts.find(d => d.id === m.target_id)?.code ?? depts.find(d => d.id === m.target_id)?.name ?? m.target_id)
@@ -107,7 +129,7 @@ export default async function StatusPage() {
       id: dept.id, name: dept.name, code: dept.code,
       region: dept.region ?? 'Miền Bắc',
       dueCount, doneCount, draftCount: draftCnt,
-      pendingTargetCodes, incomingDone, incomingTotal,
+      submittedTargetCodes, pendingTargetCodes, incomingDone, incomingTotal,
       isMyDept: dept.id === myDeptId,
     }
   })
@@ -154,7 +176,7 @@ export default async function StatusPage() {
       overall={overall}
       canManageAll={canManageAll}
       isSuperAdmin={role === 'super_admin'}
-      leaderStatByRegion={leaderStatByRegion}
+      leaders={leaders}
       deptAvgScore={deptAvgScore}
       deptMaxScore={deptMaxScore}
       myRegion={myRegion}
