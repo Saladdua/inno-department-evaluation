@@ -423,9 +423,7 @@ export default function EvaluateClient({
                   <tr>
                     <th className="ev-th th-code">Mã</th>
                     <th className="ev-th th-name">Tiêu chí</th>
-                    <th className="ev-th th-weight">Hệ số</th>
                     <th className="ev-th th-score">Điểm (0–100)</th>
-                    <th className="ev-th th-weighted">Quy đổi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -445,7 +443,6 @@ export default function EvaluateClient({
                           {isAuto && <span className="ev-auto-badge">Tự động</span>}
                           {!scoreable && !isAuto && <span className="ev-na-badge">Không đánh giá</span>}
                         </td>
-                        <td className="ev-td td-weight">×{Number(c.weight)}</td>
                         <td className="ev-td td-score" style={{ position: 'relative' }}>
                           {scoreable ? (
                             <>
@@ -469,19 +466,13 @@ export default function EvaluateClient({
                             <span className="ev-weighted-empty">—</span>
                           )}
                         </td>
-                        <td className="ev-td td-weighted">
-                          {scoreable && weighted != null
-                            ? <span className="ev-weighted-val">{weighted.toFixed(1)}</span>
-                            : <span className="ev-weighted-empty">—</span>
-                          }
-                        </td>
                       </tr>
                     )
                   })}
                 </tbody>
                 <tfoot>
                   <tr className="ev-tfoot">
-                    <td colSpan={4} className="ev-tfoot-label">Tổng điểm quy đổi</td>
+                    <td colSpan={2} className="ev-tfoot-label">Tổng điểm</td>
                     <td className="ev-tfoot-val">
                       <span className={`ev-total ${hasAnyScore ? 'ev-total--active' : ''}`}>
                         {hasAnyScore ? Math.round(totalScore) : '—'}

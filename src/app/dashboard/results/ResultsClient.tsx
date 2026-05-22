@@ -1,11 +1,13 @@
 "use client";
 
-import { Fragment, useState, useMemo, useEffect } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   Table2,
   Lock,
+  Upload,
+  X,
 } from "lucide-react";
 
 export interface CriterionInfo {
@@ -551,6 +553,80 @@ export default function ResultsClient({
   myRegion = null,
 }: Props) {
   const router = useRouter();
+
+  // ── Import state ──────────────────────────────────────
+  type ImportRow = { csvName: string; score: number; deptId: string | null; deptName: string | null }
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [importRegion, setImportRegion] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
+  const [importPreview, setImportPreview] = useState<ImportRow[]>([])
+  const [importedOverrides, setImportedOverrides] = useState<Record<string, Record<string, number>>>({})
+
+  function normKey(s: string) {
+    return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd').replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+  }
+
+  function parseCSVRows(text: string) {
+    const sep = text.includes(';') ? ';' : ','
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length < 2) return []
+    const header = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''))
+    const deptIdx = header.findIndex(h => normKey(h).includes('phong') || normKey(h) === 'dept')
+    const scoreIdx = header.findIndex(h => normKey(h).includes('diem') || normKey(h) === 'score')
+    if (deptIdx === -1 || scoreIdx === -1) return []
+    return lines.slice(1).flatMap(line => {
+      const cols = line.split(sep).map(c => c.trim().replace(/^"|"$/g, ''))
+      const name = cols[deptIdx]?.trim()
+      const score = parseFloat((cols[scoreIdx] ?? '').replace(',', '.'))
+      if (!name || isNaN(score)) return []
+      return [{ deptName: name, score }]
+    })
+  }
+
+  function matchDeptFromCSV(csvName: string, pool: DeptResult[]): DeptResult | null {
+    const key = normKey(csvName)
+    if (!key) return null
+    return pool.find(r => normKey(r.code ?? '') === key || normKey(r.name) === key)
+      ?? pool.find(r => { const rc = normKey(r.code ?? ''); return rc && (rc.startsWith(key) || key.startsWith(rc)) })
+      ?? null
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const text = ev.target?.result as string
+      const rows = parseCSVRows(text)
+      const pool = results.filter(r => (r.region ?? 'Miền Bắc') === importRegion)
+      setImportPreview(rows.map(row => {
+        const match = matchDeptFromCSV(row.deptName, pool)
+        return { csvName: row.deptName, score: row.score, deptId: match?.id ?? null, deptName: match ? (match.code ?? match.name) : null }
+      }))
+    }
+    reader.readAsText(file, 'UTF-8')
+  }
+
+  function handleConfirmImport() {
+    const override: Record<string, number> = {}
+    importPreview.forEach(r => { if (r.deptId) override[r.deptId] = r.score })
+    setImportedOverrides(prev => ({ ...prev, [importRegion]: override }))
+    setShowImportModal(false)
+    setImportPreview([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function handleClearImport(region: string) {
+    setImportedOverrides(prev => { const n = { ...prev }; delete n[region]; return n })
+  }
+
+  function openImportModal() {
+    setImportRegion((myRegion as 'Miền Bắc' | 'Miền Nam') ?? regionFilter)
+    setImportPreview([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setShowImportModal(true)
+  }
+
   const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
     (myRegion as 'Miền Bắc' | 'Miền Nam') ?? 'Miền Bắc'
   );
@@ -573,7 +649,11 @@ export default function ResultsClient({
       : myDeptRegion
         ? results.filter(r => (r.region ?? 'Miền Bắc') === myDeptRegion)
         : results;
-    const withRanks = filtered.map(r => ({ ...r }));
+    const overrides = importedOverrides[regionFilter] ?? {}
+    const base = Object.keys(overrides).length > 0
+      ? filtered.map(r => overrides[r.id] !== undefined ? { ...r, avgScore: overrides[r.id] } : r)
+      : filtered
+    const withRanks = base.map(r => ({ ...r }));
     let rank = 1;
     withRanks
       .filter(r => r.avgScore != null)
@@ -585,7 +665,7 @@ export default function ResultsClient({
       if (b.avgScore != null) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [results, regionFilter, canManageAll]);
+  }, [results, regionFilter, canManageAll, importedOverrides]);
 
   const ranked = displayResults.filter((r) => r.avgScore != null);
   const unranked = displayResults.filter((r) => r.avgScore == null);
@@ -636,6 +716,7 @@ export default function ResultsClient({
   const blockH:  Record<number, number>     = { 1: 88, 2: 64, 3: 52 };
 
   return (
+    <>
     <div className="rs-root">
       {/* ── Header ── */}
       <div className="rs-header">
@@ -685,6 +766,18 @@ export default function ResultsClient({
           )}
         </div>
         <div className="rs-header-right">
+          {canManageAll && importedOverrides[regionFilter] && Object.keys(importedOverrides[regionFilter]).length > 0 && (
+            <span className="rs-import-badge">
+              <span className="rs-import-badge-dot" />
+              Đã nhập ({Object.keys(importedOverrides[regionFilter]).length})
+              <button className="rs-import-badge-clear" onClick={() => handleClearImport(regionFilter)}><X size={10} /></button>
+            </span>
+          )}
+          {canManageAll && (
+            <button className="rs-dl-btn rs-import-btn" onClick={openImportModal}>
+              <Upload size={13} /> Nhập CSV
+            </button>
+          )}
           {(canManageAll || periodStatus === "closed") && results.length > 0 && (
             <button className="rs-dl-btn rs-dl-btn--xls" onClick={handleDownloadXLS} title="Tải Excel">
               <Table2 size={13} /> Excel
@@ -765,6 +858,73 @@ export default function ResultsClient({
 
       <style>{rsStyles}</style>
     </div>
+
+      {/* ── Import Modal (outside rs-root to avoid transform stacking context) ── */}
+      {showImportModal && (
+        <div className="rs-modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="rs-modal" onClick={e => e.stopPropagation()}>
+            <div className="rs-modal-header">
+              <span className="rs-modal-title">Nhập kết quả từ CSV</span>
+              <button className="rs-modal-close" onClick={() => setShowImportModal(false)}><X size={16} /></button>
+            </div>
+            <div className="rs-modal-body">
+              <div className="rs-modal-region-tabs">
+                {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
+                  <button
+                    key={r}
+                    className={`rs-modal-region-tab${importRegion === r ? ' rs-modal-region-tab--active' : ''}`}
+                    onClick={() => { setImportRegion(r); setImportPreview([]); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <p className="rs-modal-period-info">Kỳ: <strong>{periodLabel}</strong></p>
+              <label className="rs-modal-file-label">
+                <Upload size={14} />
+                <span>Chọn file CSV…</span>
+                <input ref={fileInputRef} type="file" accept=".csv" className="rs-modal-file-input" onChange={handleFileChange} />
+              </label>
+              <p className="rs-modal-hint">CSV cần cột <code>Phòng ban</code> và <code>điểm</code></p>
+              {importPreview.length > 0 && (
+                <div className="rs-modal-preview">
+                  <div className="rs-modal-preview-title">
+                    {importPreview.length} dòng &mdash; {importPreview.filter(r => r.deptId).length} khớp
+                  </div>
+                  <div className="rs-modal-table-wrap">
+                    <table className="rs-modal-table">
+                      <thead>
+                        <tr><th>Tên trong CSV</th><th>Phòng ban khớp</th><th>Điểm</th></tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.map((row, i) => (
+                          <tr key={i} className={row.deptId ? '' : 'rs-modal-row--unmatched'}>
+                            <td>{row.csvName}</td>
+                            <td>{row.deptName ?? <span className="rs-modal-no-match">Không tìm thấy</span>}</td>
+                            <td className="rs-modal-score-cell">{row.score}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="rs-modal-footer">
+              <button className="rs-modal-cancel" onClick={() => setShowImportModal(false)}>Huỷ</button>
+              <button
+                className="rs-modal-confirm"
+                onClick={handleConfirmImport}
+                disabled={importPreview.filter(r => r.deptId).length === 0}
+              >
+                Áp dụng ({importPreview.filter(r => r.deptId).length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </>
   );
 }
 
@@ -949,4 +1109,134 @@ const rsStyles = `
   [data-theme="light"] .rs-row-score { color: rgba(0,0,0,0.78); }
   [data-theme="light"] .rs-row-score-col { border-left-color: rgba(0,0,0,0.06); }
   [data-theme="light"] .rs-section-label { color: rgba(0,0,0,0.55); }
+
+  /* ── Import button & badge ── */
+  .rs-import-btn { background: rgba(179,0,0,0.1); color: rgba(220,80,80,0.9); border: 1px solid rgba(179,0,0,0.22); }
+  .rs-import-btn:hover { background: rgba(179,0,0,0.18); }
+  [data-theme="light"] .rs-import-btn { background: rgba(179,0,0,0.07); color: rgba(160,0,0,0.9); border-color: rgba(179,0,0,0.18); }
+
+  .rs-import-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    background: rgba(179,0,0,0.12); border: 1px solid rgba(179,0,0,0.28); color: rgba(240,100,100,0.9);
+    font-family: var(--font-sans), sans-serif;
+  }
+  .rs-import-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #CC0000; flex-shrink: 0; }
+  .rs-import-badge-clear {
+    display: flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.08); color: rgba(240,100,100,0.7); padding: 0;
+    transition: background 0.15s;
+  }
+  .rs-import-badge-clear:hover { background: rgba(255,255,255,0.16); color: #fff; }
+  [data-theme="light"] .rs-import-badge { background: rgba(179,0,0,0.07); border-color: rgba(179,0,0,0.2); color: rgba(160,0,0,0.9); }
+  [data-theme="light"] .rs-import-badge-clear { background: rgba(0,0,0,0.06); color: rgba(160,0,0,0.6); }
+
+  /* ── Import Modal ── */
+  .rs-modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.65); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .rs-modal {
+    background: #111; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px;
+    width: 100%; max-width: 520px; display: flex; flex-direction: column;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.7); animation: rsFade 0.2s ease both;
+    font-family: var(--font-sans), sans-serif;
+  }
+  .rs-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px 16px; border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .rs-modal-title { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: 0.03em; }
+  .rs-modal-close {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 6px; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.45);
+    transition: background 0.15s, color 0.15s;
+  }
+  .rs-modal-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+  .rs-modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+
+  .rs-modal-region-tabs { display: flex; gap: 4px; }
+  .rs-modal-region-tab {
+    padding: 5px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);
+    font-size: 12px; font-weight: 700; letter-spacing: 0.06em; cursor: pointer;
+    background: transparent; color: rgba(255,255,255,0.35);
+    font-family: var(--font-sans), sans-serif; transition: background 0.15s, color 0.15s;
+  }
+  .rs-modal-region-tab:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.06); }
+  .rs-modal-region-tab--active { background: #B30000; color: #fff; border-color: #B30000; }
+
+  .rs-modal-period-info { font-size: 12px; color: rgba(255,255,255,0.4); }
+  .rs-modal-period-info strong { color: rgba(255,255,255,0.75); }
+
+  .rs-modal-file-label {
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 8px 14px; border-radius: 8px; border: 1px dashed rgba(255,255,255,0.2);
+    font-size: 12px; color: rgba(255,255,255,0.5); transition: border-color 0.15s, color 0.15s;
+    width: fit-content;
+  }
+  .rs-modal-file-label:hover { border-color: rgba(179,0,0,0.5); color: rgba(255,255,255,0.75); }
+  .rs-modal-file-input { display: none; }
+  .rs-modal-hint { font-size: 11px; color: rgba(255,255,255,0.25); }
+  .rs-modal-hint code { background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 4px; font-size: 11px; color: rgba(255,255,255,0.5); }
+
+  .rs-modal-preview { display: flex; flex-direction: column; gap: 8px; }
+  .rs-modal-preview-title { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.35); letter-spacing: 0.06em; text-transform: uppercase; }
+  .rs-modal-table-wrap { max-height: 220px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; }
+  .rs-modal-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .rs-modal-table thead th {
+    padding: 7px 10px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.07);
+    position: sticky; top: 0;
+  }
+  .rs-modal-table tbody td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); color: rgba(255,255,255,0.72); }
+  .rs-modal-table tbody tr:last-child td { border-bottom: none; }
+  .rs-modal-row--unmatched td { opacity: 0.45; }
+  .rs-modal-no-match { color: rgba(220,60,60,0.7); font-style: italic; }
+  .rs-modal-score-cell { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: rgba(255,255,255,0.85); }
+
+  .rs-modal-footer {
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    padding: 14px 20px 18px; border-top: 1px solid rgba(255,255,255,0.07);
+  }
+  .rs-modal-cancel {
+    padding: 7px 16px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;
+    font-size: 12px; font-weight: 600; background: transparent; color: rgba(255,255,255,0.45);
+    font-family: var(--font-sans), sans-serif; transition: background 0.15s, color 0.15s;
+  }
+  .rs-modal-cancel:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); }
+  .rs-modal-confirm {
+    padding: 7px 16px; border-radius: 7px; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 700; background: #B30000; color: #fff;
+    font-family: var(--font-sans), sans-serif; transition: background 0.15s, opacity 0.15s;
+  }
+  .rs-modal-confirm:hover:not(:disabled) { background: #cc0000; }
+  .rs-modal-confirm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Light mode modal */
+  [data-theme="light"] .rs-modal { background: #fff; border-color: rgba(0,0,0,0.12); box-shadow: 0 24px 64px rgba(0,0,0,0.18); }
+  [data-theme="light"] .rs-modal-header { border-bottom-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .rs-modal-title { color: #111; }
+  [data-theme="light"] .rs-modal-close { background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.4); }
+  [data-theme="light"] .rs-modal-close:hover { background: rgba(0,0,0,0.09); color: #111; }
+  [data-theme="light"] .rs-modal-region-tab { border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.4); }
+  [data-theme="light"] .rs-modal-region-tab:hover { color: rgba(0,0,0,0.7); background: rgba(0,0,0,0.05); }
+  [data-theme="light"] .rs-modal-period-info { color: rgba(0,0,0,0.45); }
+  [data-theme="light"] .rs-modal-period-info strong { color: rgba(0,0,0,0.8); }
+  [data-theme="light"] .rs-modal-file-label { border-color: rgba(0,0,0,0.2); color: rgba(0,0,0,0.45); }
+  [data-theme="light"] .rs-modal-file-label:hover { border-color: rgba(179,0,0,0.45); color: rgba(0,0,0,0.75); }
+  [data-theme="light"] .rs-modal-hint { color: rgba(0,0,0,0.3); }
+  [data-theme="light"] .rs-modal-hint code { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.55); }
+  [data-theme="light"] .rs-modal-preview-title { color: rgba(0,0,0,0.35); }
+  [data-theme="light"] .rs-modal-table-wrap { border-color: rgba(0,0,0,0.1); }
+  [data-theme="light"] .rs-modal-table thead th { background: rgba(0,0,0,0.03); color: rgba(0,0,0,0.35); border-bottom-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .rs-modal-table tbody td { color: rgba(0,0,0,0.8); border-bottom-color: rgba(0,0,0,0.05); }
+  [data-theme="light"] .rs-modal-score-cell { color: rgba(0,0,0,0.85); }
+  [data-theme="light"] .rs-modal-footer { border-top-color: rgba(0,0,0,0.08); }
+  [data-theme="light"] .rs-modal-cancel { border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.5); }
+  [data-theme="light"] .rs-modal-cancel:hover { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.75); }
 `;

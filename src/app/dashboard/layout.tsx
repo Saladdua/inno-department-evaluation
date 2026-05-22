@@ -140,7 +140,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="topbar-title">
             {currentNav && (
               <>
-                <currentNav.icon size={15} strokeWidth={1.75} className="topbar-icon" />
+                <currentNav.icon size={18} strokeWidth={1.75} className="topbar-icon" />
                 <h1 className="topbar-heading">{currentNav.label}</h1>
               </>
             )}
@@ -397,7 +397,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         /* Top bar */
         .topbar {
-          height: 52px;
+          height: 62px;
           flex-shrink: 0;
           display: flex;
           align-items: center;
@@ -410,15 +410,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         .topbar-title {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
         }
         .topbar-icon { color: #B30000; flex-shrink: 0; }
         .topbar-heading {
-          font-size: 13.5px;
-          font-weight: 400;
-          color: rgba(255,255,255,0.75);
+          font-size: 17px;
+          font-weight: 600;
+          color: rgba(255,255,255,0.88);
           letter-spacing: 0.01em;
-          font-style: italic;
+          font-style: normal;
         }
         .topbar-right {
           display: flex;
@@ -501,7 +501,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         [data-theme="light"] .logout-btn { border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.35); background: transparent; }
         [data-theme="light"] .logout-btn:hover { color: #b30000; border-color: rgba(179,0,0,0.2); background: rgba(179,0,0,0.05); }
         [data-theme="light"] .topbar { background: rgba(255,255,255,0.9); border-bottom-color: rgba(0,0,0,0.07); }
-        [data-theme="light"] .topbar-heading { color: rgba(0,0,0,0.6); }
+        [data-theme="light"] .topbar-heading { color: rgba(0,0,0,0.8); }
         [data-theme="light"] .period-badge { border-color: rgba(179,0,0,0.2); background: rgba(179,0,0,0.05); color: rgba(0,0,0,0.45); }
         [data-theme="light"] .theme-toggle { border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.4); background: transparent; }
         [data-theme="light"] .theme-toggle:hover { color: rgba(0,0,0,0.7); border-color: rgba(0,0,0,0.18); background: rgba(0,0,0,0.05); }

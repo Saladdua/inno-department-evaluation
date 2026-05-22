@@ -784,7 +784,7 @@ export default function MatrixClient({
         .mx-col-label {
           display: block; padding: 10px 4px; writing-mode: vertical-rl;
           transform: rotate(180deg); font-size: 10px; font-weight: 600;
-          color: rgba(255,255,255,0.3); letter-spacing: 0.06em; white-space: nowrap;
+          color: rgba(255,255,255,0.6); letter-spacing: 0.06em; white-space: nowrap;
         }
 
         .mx-row-head {
@@ -792,33 +792,33 @@ export default function MatrixClient({
           padding: 0 12px 0 14px; border-right: 1px solid rgba(255,255,255,0.06);
           width: 80px; min-width: 80px;
         }
-        .mx-row-label { display: block; font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.3); white-space: nowrap; letter-spacing: 0.04em; }
-        .mx-row-label--mine { color: #B30000; font-weight: 700; }
+        .mx-row-label { display: block; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); white-space: nowrap; letter-spacing: 0.04em; }
+        .mx-row-label--mine { color: #CC0000; font-weight: 700; }
 
-        .mx-row { border-top: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; }
+        .mx-row { border-top: 1px solid rgba(255,255,255,0.07); transition: background 0.1s; }
         .mx-row:hover .mx-row-head { background: #111; }
-        .mx-row--mine { background: rgba(179,0,0,0.03); }
-        .mx-row--mine .mx-row-head { background: rgba(179,0,0,0.06); }
+        .mx-row--mine { background: rgba(179,0,0,0.04); }
+        .mx-row--mine .mx-row-head { background: rgba(179,0,0,0.08); }
 
-        .mx-cell { width: 44px; height: 38px; text-align: center; vertical-align: middle; padding: 0; position: relative; transition: background 0.1s; }
-        .mx-cell--diag { background: rgba(255,255,255,0.03); }
-        .mx-cell--diag::after { content: ''; position: absolute; inset: 6px; border-radius: 4px; background: rgba(255,255,255,0.04); }
+        .mx-cell { width: 44px; height: 38px; text-align: center; vertical-align: middle; padding: 0; position: relative; transition: background 0.1s; border-right: 1px solid rgba(255,255,255,0.04); }
+        .mx-cell--diag { background: rgba(255,255,255,0.04); }
+        .mx-cell--diag::after { content: ''; position: absolute; inset: 6px; border-radius: 4px; background: rgba(255,255,255,0.06); }
         .mx-cell--blocked {
           background: repeating-linear-gradient(
             -45deg,
-            rgba(255,255,255,0.015) 0px,
-            rgba(255,255,255,0.015) 2px,
+            rgba(255,255,255,0.07) 0px,
+            rgba(255,255,255,0.07) 2px,
             transparent 2px,
             transparent 8px
           );
           cursor: not-allowed;
         }
         .mx-cell--interactive { cursor: pointer; }
-        .mx-cell--interactive:hover { background: rgba(179,0,0,0.06); }
-        .mx-cell--on { background: rgba(179,0,0,0.08); }
-        .mx-cell--on.mx-cell--interactive:hover { background: rgba(179,0,0,0.14); }
+        .mx-cell--interactive:hover { background: rgba(179,0,0,0.1); }
+        .mx-cell--on { background: rgba(179,0,0,0.2); }
+        .mx-cell--on.mx-cell--interactive:hover { background: rgba(179,0,0,0.28); }
 
-        .mx-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #B30000; box-shadow: 0 0 6px rgba(179,0,0,0.6); }
+        .mx-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: #CC0000; box-shadow: 0 0 8px rgba(204,0,0,0.7); }
 
         .mx-count-cell {
           position: sticky; right: 0; z-index: 1; background: #0e0e0e;
@@ -1006,17 +1006,21 @@ export default function MatrixClient({
         [data-theme="light"] .mx-corner { background: #f5f5f5; border-right-color: rgba(0,0,0,0.07); border-bottom-color: rgba(0,0,0,0.07); }
         [data-theme="light"] .mx-col-head { background: #f5f5f5; border-bottom-color: rgba(0,0,0,0.07); }
         [data-theme="light"] .mx-count-head { background: #f5f5f5; border-color: rgba(0,0,0,0.07); }
-        [data-theme="light"] .mx-col-label { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .mx-col-label { color: rgba(0,0,0,0.6); }
         [data-theme="light"] .mx-row-head { background: #fff; border-right-color: rgba(0,0,0,0.06); }
         [data-theme="light"] .mx-row:hover .mx-row-head { background: #f9f9f9; }
         [data-theme="light"] .mx-row--mine .mx-row-head { background: rgba(179,0,0,0.04); }
-        [data-theme="light"] .mx-row-label { color: rgba(0,0,0,0.4); }
-        [data-theme="light"] .mx-row { border-top-color: rgba(0,0,0,0.05); }
+        [data-theme="light"] .mx-row-label { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .mx-row { border-top-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .mx-cell { border-right-color: rgba(0,0,0,0.05); }
+        [data-theme="light"] .mx-cell--on { background: rgba(179,0,0,0.14); }
+        [data-theme="light"] .mx-cell--on.mx-cell--interactive:hover { background: rgba(179,0,0,0.22); }
+        [data-theme="light"] .mx-dot { background: #B30000; box-shadow: 0 0 7px rgba(179,0,0,0.5); }
         [data-theme="light"] .mx-cell--diag { background: rgba(0,0,0,0.03); }
         [data-theme="light"] .mx-cell--blocked {
           background: repeating-linear-gradient(
             -45deg,
-            rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 2px,
+            rgba(0,0,0,0.08) 0px, rgba(0,0,0,0.08) 2px,
             transparent 2px, transparent 8px
           );
         }

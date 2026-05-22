@@ -820,7 +820,7 @@ export default function StatusClient({
         .st-tr--mine:hover { background: rgba(179,0,0,0.07); }
         .st-tr--leader { background: rgba(251,191,36,0.03); border-bottom: 1px solid rgba(255,255,255,0.06); }
         .st-tr--leader:hover { background: rgba(251,191,36,0.06); }
-        .st-dept-code--leader { color: rgba(251,191,36,0.8); font-style: italic; }
+        .st-dept-code--leader { color: rgba(251,191,36,0.8); }
         .st-td { padding: 11px 16px; vertical-align: middle; }
 
         .td-dept { white-space: nowrap; }
