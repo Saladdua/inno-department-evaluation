@@ -810,8 +810,9 @@ export default function StatusClient({
           color: rgba(255,255,255,0.25); border-bottom: 1px solid rgba(255,255,255,0.06);
           white-space: nowrap; position: sticky; top: 0; background: #0e0e0e; z-index: 1;
         }
+        .th-dept { width: 1%; white-space: nowrap; }
         .th-status { width: 120px; }
-        .th-done, .th-pending { width: 200px; }
+        .th-done, .th-pending { min-width: 240px; width: 40%; }
         .st-tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; }
         .st-tr:hover { background: rgba(255,255,255,0.025); }
         .st-tr:last-child { border-bottom: none; }
@@ -840,7 +841,7 @@ export default function StatusClient({
           border: 1px solid rgba(251,191,36,0.18); vertical-align: middle;
         }
 
-        .td-done, .td-pending { min-width: 160px; }
+        .td-done, .td-pending { min-width: 240px; }
         .st-count-cell { display: flex; flex-direction: column; gap: 5px; }
         .st-count-nums { display: flex; align-items: baseline; gap: 1px; }
         .st-count-done { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.65); }

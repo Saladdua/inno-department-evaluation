@@ -995,6 +995,10 @@ export default function MatrixClient({
 
         /* ── Light mode ── */
         [data-theme="light"] .mx-period { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .mx-region-tabs { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .mx-region-tab { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .mx-region-tab:hover { color: rgba(0,0,0,0.65); background: rgba(0,0,0,0.06); }
+        [data-theme="light"] .mx-region-tab--active { background: #B30000; color: #fff; }
         [data-theme="light"] .mx-btn--ghost { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .mx-btn--ghost:hover:not(:disabled) { background: rgba(0,0,0,0.09); color: rgba(0,0,0,0.7); }
         [data-theme="light"] .mx-hint { color: rgba(0,0,0,0.4); background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); }

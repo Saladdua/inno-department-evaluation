@@ -139,12 +139,6 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
     return avg(target.evaluators.map(e => e.totalScore))
   }, [target])
 
-  if (displayTargets.length === 0) {
-    return (
-      <div className="dt-empty">Chưa có đánh giá nào được nộp trong kỳ này.</div>
-    )
-  }
-
   return (
     <div className="dt-root">
 
@@ -177,23 +171,27 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
             <span className="dt-region-badge">{myRegion}</span>
           ) : null}
         </div>
-        <div className="dt-header-right">
-          <span className="dt-selector-label">Phòng được đánh giá</span>
-          <select
-            className="dt-select"
-            value={effectiveSelectedId}
-            onChange={e => setSelectedId(e.target.value)}
-          >
-            {displayTargets.map(t => (
-              <option key={t.targetId} value={t.targetId}>
-                {t.targetCode ?? t.targetName}
-              </option>
-            ))}
-          </select>
-        </div>
+        {displayTargets.length > 0 && (
+          <div className="dt-header-right">
+            <span className="dt-selector-label">Phòng được đánh giá</span>
+            <select
+              className="dt-select"
+              value={effectiveSelectedId}
+              onChange={e => setSelectedId(e.target.value)}
+            >
+              {displayTargets.map(t => (
+                <option key={t.targetId} value={t.targetId}>
+                  {t.targetCode ?? t.targetName}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {target && (
+      {displayTargets.length === 0 ? (
+        <div className="dt-empty">Chưa có đánh giá nào được nộp trong kỳ này.</div>
+      ) : target && (
         <>
           {/* ── Target summary ── */}
           <div className="dt-summary">
@@ -457,6 +455,11 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
         [data-theme="light"] .dt-empty { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .dt-period { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .dt-sub { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .dt-region-tabs { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .dt-region-tab { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .dt-region-tab:hover { color: rgba(0,0,0,0.65); background: rgba(0,0,0,0.06); }
+        [data-theme="light"] .dt-region-tab--active { background: #B30000; color: #fff; }
+        [data-theme="light"] .dt-region-badge { background: #B30000; color: #fff; }
         [data-theme="light"] .dt-selector-label { color: rgba(0,0,0,0.35); }
         [data-theme="light"] .dt-select { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.8); }
         [data-theme="light"] .dt-select option { background: #fff; color: #1a1a1a; }
