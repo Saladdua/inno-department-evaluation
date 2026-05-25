@@ -2,20 +2,14 @@
 
 import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ChevronDown,
-  Table2,
-  Lock,
-  Upload,
-  X,
-} from "lucide-react";
+import { ChevronDown, Table2, Lock, Upload, X } from "lucide-react";
 
 export interface CriterionInfo {
   id: string;
   code: string | null;
   name: string;
   weight: number;
-  input_type: 'manual' | 'auto';
+  input_type: "manual" | "auto";
 }
 
 export interface CriterionAvg {
@@ -359,9 +353,10 @@ footer::before{
 
 <div class="page-header">
   <div class="logo">
-    ${logoUrl
-      ? `<img src="${logoUrl}" alt="Company Logo" class="logo-img">`
-      : `<svg width="42" height="42" viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg">
+    ${
+      logoUrl
+        ? `<img src="${logoUrl}" alt="Company Logo" class="logo-img">`
+        : `<svg width="42" height="42" viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg">
       <polygon points="21,2 40,21 21,40 2,21" fill="#B30000"/>
       <polygon points="21,9 34,21 21,33 8,21" fill="rgba(0,0,0,0.22)"/>
       <polygon points="21,2 40,21 30,11" fill="rgba(255,255,255,0.13)"/>
@@ -371,7 +366,8 @@ footer::before{
     <div class="logo-wordmark">
       <div class="logo-name">INNO</div>
       <span class="logo-tagline">Innovation — Joint Stock Company</span>
-    </div>`}
+    </div>`
+    }
   </div>
   <div class="header-content">
     <div>
@@ -527,7 +523,11 @@ export function generateXLS(
 </Workbook>`;
 }
 
-export function triggerDownload(content: string, filename: string, mime: string) {
+export function triggerDownload(
+  content: string,
+  filename: string,
+  mime: string,
+) {
   const blob = new Blob(["﻿" + content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -559,150 +559,210 @@ export default function ResultsClient({
   const router = useRouter();
 
   // ── Import state ──────────────────────────────────────
-  type ImportRow = { csvName: string; score: number; deptId: string | null; deptName: string | null }
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [showImportModal, setShowImportModal] = useState(false)
-  const [importRegion, setImportRegion] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
-  const [importPreview, setImportPreview] = useState<ImportRow[]>([])
-  const [importedOverrides, setImportedOverrides] = useState<Record<string, Record<string, number>>>(initialOverrides)
-  const [isSaving, setIsSaving] = useState(false)
+  type ImportRow = {
+    csvName: string;
+    score: number;
+    deptId: string | null;
+    deptName: string | null;
+  };
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importRegion, setImportRegion] = useState<"Miền Bắc" | "Miền Nam">(
+    "Miền Bắc",
+  );
+  const [importPreview, setImportPreview] = useState<ImportRow[]>([]);
+  const [importedOverrides, setImportedOverrides] =
+    useState<Record<string, Record<string, number>>>(initialOverrides);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    setImportedOverrides(initialOverrides)
-  }, [periodId])
+    setImportedOverrides(initialOverrides);
+  }, [periodId]);
 
   function normKey(s: string) {
-    return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd').replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+    return s
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[đĐ]/g, "d")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toLowerCase();
   }
 
   // Proper quoted-field CSV splitter
   function splitCSVLine(line: string, sep: string): string[] {
-    const cols: string[] = []
-    let cur = '', inQ = false
+    const cols: string[] = [];
+    let cur = "",
+      inQ = false;
     for (const ch of line) {
-      if (ch === '"') { inQ = !inQ }
-      else if (ch === sep && !inQ) { cols.push(cur.trim()); cur = '' }
-      else { cur += ch }
+      if (ch === '"') {
+        inQ = !inQ;
+      } else if (ch === sep && !inQ) {
+        cols.push(cur.trim());
+        cur = "";
+      } else {
+        cur += ch;
+      }
     }
-    cols.push(cur.trim())
-    return cols
+    cols.push(cur.trim());
+    return cols;
   }
 
   function parseCSVRows(text: string) {
-    const sep = text.includes(';') ? ';' : ','
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-    if (lines.length < 2) return []
-    const header = splitCSVLine(lines[0], sep).map(h => h.replace(/^"|"$/g, ''))
-    const deptIdx = header.findIndex(h => normKey(h).includes('phong') || normKey(h) === 'dept')
-    const scoreIdx = header.findIndex(h => normKey(h).includes('diem') || normKey(h) === 'score')
-    if (deptIdx === -1 || scoreIdx === -1) return []
-    return lines.slice(1).flatMap(line => {
-      const cols = splitCSVLine(line, sep).map(c => c.replace(/^"|"$/g, ''))
-      const name = cols[deptIdx]?.trim()
-      let rawScore = (cols[scoreIdx] ?? '').replace(',', '.')
+    const sep = text.includes(";") ? ";" : ",";
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length < 2) return [];
+    const header = splitCSVLine(lines[0], sep).map((h) =>
+      h.replace(/^"|"$/g, ""),
+    );
+    const deptIdx = header.findIndex(
+      (h) => normKey(h).includes("phong") || normKey(h) === "dept",
+    );
+    const scoreIdx = header.findIndex(
+      (h) => normKey(h).includes("diem") || normKey(h) === "score",
+    );
+    if (deptIdx === -1 || scoreIdx === -1) return [];
+    return lines.slice(1).flatMap((line) => {
+      const cols = splitCSVLine(line, sep).map((c) => c.replace(/^"|"$/g, ""));
+      const name = cols[deptIdx]?.trim();
+      let rawScore = (cols[scoreIdx] ?? "").replace(",", ".");
       // If score has no decimal but extra columns exist, it may be a comma-decimal split:
       // e.g. "69,22" with comma sep → cols[scoreIdx]="69", cols[scoreIdx+1]="22"
-      if (!rawScore.includes('.') && cols.length > header.length) {
-        const frac = cols[scoreIdx + 1]?.trim()
-        if (frac && /^\d{1,2}$/.test(frac)) rawScore = rawScore + '.' + frac
+      if (!rawScore.includes(".") && cols.length > header.length) {
+        const frac = cols[scoreIdx + 1]?.trim();
+        if (frac && /^\d{1,2}$/.test(frac)) rawScore = rawScore + "." + frac;
       }
-      const score = parseFloat(rawScore)
-      if (!name || isNaN(score)) return []
-      return [{ deptName: name, score }]
-    })
+      const score = parseFloat(rawScore);
+      if (!name || isNaN(score)) return [];
+      return [{ deptName: name, score }];
+    });
   }
 
-  function matchDeptFromCSV(csvName: string, pool: DeptResult[]): DeptResult | null {
-    const key = normKey(csvName)
-    if (!key) return null
-    return pool.find(r => normKey(r.code ?? '') === key || normKey(r.name) === key)
-      ?? pool.find(r => { const rc = normKey(r.code ?? ''); return rc && (rc.startsWith(key) || key.startsWith(rc)) })
-      ?? null
+  function matchDeptFromCSV(
+    csvName: string,
+    pool: DeptResult[],
+  ): DeptResult | null {
+    const key = normKey(csvName);
+    if (!key) return null;
+    return (
+      pool.find(
+        (r) => normKey(r.code ?? "") === key || normKey(r.name) === key,
+      ) ??
+      pool.find((r) => {
+        const rc = normKey(r.code ?? "");
+        return rc && (rc.startsWith(key) || key.startsWith(rc));
+      }) ??
+      null
+    );
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const text = ev.target?.result as string
-      const rows = parseCSVRows(text)
-      const pool = results.filter(r => (r.region ?? 'Miền Bắc') === importRegion)
-      setImportPreview(rows.map(row => {
-        const match = matchDeptFromCSV(row.deptName, pool)
-        return { csvName: row.deptName, score: row.score, deptId: match?.id ?? null, deptName: match ? (match.code ?? match.name) : null }
-      }))
-    }
-    reader.readAsText(file, 'UTF-8')
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCSVRows(text);
+      const pool = results.filter(
+        (r) => (r.region ?? "Miền Bắc") === importRegion,
+      );
+      setImportPreview(
+        rows.map((row) => {
+          const match = matchDeptFromCSV(row.deptName, pool);
+          return {
+            csvName: row.deptName,
+            score: row.score,
+            deptId: match?.id ?? null,
+            deptName: match ? (match.code ?? match.name) : null,
+          };
+        }),
+      );
+    };
+    reader.readAsText(file, "UTF-8");
   }
 
   async function handleConfirmImport() {
-    const override: Record<string, number> = {}
-    importPreview.forEach(r => {
-      if (r.deptId) override[r.deptId] = Math.round(r.score * 100) / 100
-    })
-    setImportedOverrides(prev => ({ ...prev, [importRegion]: override }))
-    setShowImportModal(false)
-    setImportPreview([])
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    const override: Record<string, number> = {};
+    importPreview.forEach((r) => {
+      if (r.deptId) override[r.deptId] = Math.round(r.score * 100) / 100;
+    });
+    setImportedOverrides((prev) => ({ ...prev, [importRegion]: override }));
+    setShowImportModal(false);
+    setImportPreview([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
 
     if (periodId) {
-      setIsSaving(true)
+      setIsSaving(true);
       try {
-        await fetch('/api/results/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        await fetch("/api/results/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             period_id: periodId,
             region: importRegion,
-            overrides: Object.entries(override).map(([dept_id, score]) => ({ dept_id, score })),
+            overrides: Object.entries(override).map(([dept_id, score]) => ({
+              dept_id,
+              score,
+            })),
           }),
-        })
+        });
       } finally {
-        setIsSaving(false)
+        setIsSaving(false);
       }
     }
   }
 
   function openImportModal() {
-    setImportRegion((myRegion as 'Miền Bắc' | 'Miền Nam') ?? regionFilter)
-    setImportPreview([])
-    if (fileInputRef.current) fileInputRef.current.value = ''
-    setShowImportModal(true)
+    setImportRegion((myRegion as "Miền Bắc" | "Miền Nam") ?? regionFilter);
+    setImportPreview([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setShowImportModal(true);
   }
 
-  const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
-    (myRegion as 'Miền Bắc' | 'Miền Nam') ?? 'Miền Bắc'
+  const [regionFilter, setRegionFilter] = useState<"Miền Bắc" | "Miền Nam">(
+    (myRegion as "Miền Bắc" | "Miền Nam") ?? "Miền Bắc",
   );
 
   useEffect(() => {
     if (myRegion) return;
-    const saved = localStorage.getItem('region_filter') as 'Miền Bắc' | 'Miền Nam' | null;
-    if (saved === 'Miền Bắc' || saved === 'Miền Nam') setRegionFilter(saved);
+    const saved = localStorage.getItem("region_filter") as
+      | "Miền Bắc"
+      | "Miền Nam"
+      | null;
+    if (saved === "Miền Bắc" || saved === "Miền Nam") setRegionFilter(saved);
   }, [myRegion]);
 
   useEffect(() => {
     if (myRegion) return;
-    localStorage.setItem('region_filter', regionFilter);
+    localStorage.setItem("region_filter", regionFilter);
   }, [regionFilter, myRegion]);
 
   const displayResults = useMemo(() => {
-    const myDeptRegion = results.find(r => r.isMyDept)?.region ?? null;
+    const myDeptRegion = results.find((r) => r.isMyDept)?.region ?? null;
     const filtered = canManageAll
-      ? results.filter(r => (r.region ?? 'Miền Bắc') === regionFilter)
+      ? results.filter((r) => (r.region ?? "Miền Bắc") === regionFilter)
       : myDeptRegion
-        ? results.filter(r => (r.region ?? 'Miền Bắc') === myDeptRegion)
+        ? results.filter((r) => (r.region ?? "Miền Bắc") === myDeptRegion)
         : results;
-    const overrides = importedOverrides[regionFilter] ?? {}
-    const base = Object.keys(overrides).length > 0
-      ? filtered.map(r => overrides[r.id] !== undefined ? { ...r, avgScore: overrides[r.id] } : r)
-      : filtered
-    const withRanks = base.map(r => ({ ...r }));
+    const overrides = importedOverrides[regionFilter] ?? {};
+    const base =
+      Object.keys(overrides).length > 0
+        ? filtered.map((r) =>
+            overrides[r.id] !== undefined
+              ? { ...r, avgScore: overrides[r.id] }
+              : r,
+          )
+        : filtered;
+    const withRanks = base.map((r) => ({ ...r }));
     let rank = 1;
     withRanks
-      .filter(r => r.avgScore != null)
+      .filter((r) => r.avgScore != null)
       .sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0))
-      .forEach(r => { r.rank = rank++; });
+      .forEach((r) => {
+        r.rank = rank++;
+      });
     return withRanks.sort((a, b) => {
       if (a.avgScore != null && b.avgScore != null) return a.rank - b.rank;
       if (a.avgScore != null) return -1;
@@ -713,11 +773,11 @@ export default function ResultsClient({
 
   const ranked = displayResults.filter((r) => r.avgScore != null);
   const unranked = displayResults.filter((r) => r.avgScore == null);
-  const tableRows = [...ranked.filter(r => r.rank > 3), ...unranked];
+  const tableRows = [...ranked.filter((r) => r.rank > 3), ...unranked];
 
   const quartersForYear = periods
-    .filter(p => p.year === activeYear)
-    .map(p => p.quarter)
+    .filter((p) => p.year === activeYear)
+    .map((p) => p.quarter)
     .sort((a, b) => a - b);
 
   function handleYearChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -726,7 +786,7 @@ export default function ResultsClient({
 
   function handleQuarterChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const q = e.target.value;
-    if (q === '') {
+    if (q === "") {
       router.push(`/dashboard/results?year=${activeYear}`);
     } else {
       router.push(`/dashboard/results?year=${activeYear}&quarter=${q}`);
@@ -756,189 +816,285 @@ export default function ResultsClient({
     );
   }
 
-  const medalColors: Record<number, string> = { 1: "#C8A84B", 2: "#9EB5C8", 3: "#C8956C" };
-  const blockH:  Record<number, number>     = { 1: 88, 2: 64, 3: 52 };
+  const medalColors: Record<number, string> = {
+    1: "#C8A84B",
+    2: "#9EB5C8",
+    3: "#C8956C",
+  };
+  const blockH: Record<number, number> = { 1: 88, 2: 64, 3: 52 };
 
   return (
     <>
-    <div className="rs-root">
-      {/* ── Header ── */}
-      <div className="rs-header">
-        <div className="rs-header-left">
-          <div className="rs-filter-group">
-            <div className="rs-period-select-wrap">
-              <select
-                className="rs-period-select"
-                value={activeYear}
-                onChange={handleYearChange}
-              >
-                {years.map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-              <ChevronDown size={12} className="rs-select-icon" />
-            </div>
-            <div className="rs-period-select-wrap">
-              <select
-                className="rs-period-select"
-                value={activeQuarter ?? ""}
-                onChange={handleQuarterChange}
-              >
-                <option value="">Cả năm</option>
-                {quartersForYear.map((q) => (
-                  <option key={q} value={q}>Quý {q}</option>
-                ))}
-              </select>
-              <ChevronDown size={12} className="rs-select-icon" />
-            </div>
-          </div>
-          {canManageAll && (
-            <div className="rs-region-tabs">
-              {(["Miền Bắc", "Miền Nam"] as const).map(r => (
-                <button
-                  key={r}
-                  className={`rs-region-tab${regionFilter === r ? " rs-region-tab--active" : ""}`}
-                  onClick={() => setRegionFilter(r)}
+      <div className="rs-root">
+        {/* ── Header ── */}
+        <div className="rs-header">
+          <div className="rs-header-left">
+            <div className="rs-filter-group">
+              <div className="rs-period-select-wrap">
+                <select
+                  className="rs-period-select"
+                  value={activeYear}
+                  onChange={handleYearChange}
                 >
-                  {r}
-                </button>
-              ))}
-            </div>
-          )}
-          {activeQuarter !== null && periodStatus === "closed" && (
-            <span className="rs-locked-badge"><Lock size={10} /> Đã tổng kết</span>
-          )}
-        </div>
-        <div className="rs-header-right">
-          {canManageAll && periodId !== null && (
-            <button className="rs-dl-btn rs-import-btn" onClick={openImportModal} disabled={isSaving}>
-              <Upload size={13} /> {isSaving ? 'Đang lưu…' : 'Nhập CSV'}
-            </button>
-          )}
-          {(canManageAll || periodStatus === "closed") && results.length > 0 && (
-            <button className="rs-dl-btn rs-dl-btn--xls" onClick={handleDownloadXLS} title="Tải Excel">
-              <Table2 size={13} /> Excel
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Empty state ── */}
-      {displayResults.length === 0 && (
-        <div className="rs-empty">{canManageAll ? `Không có phòng ban nào thuộc ${regionFilter}.` : 'Chưa có dữ liệu đánh giá nào được nộp trong kỳ này.'}</div>
-      )}
-
-      {/* ── Podium (top 3) ── */}
-      {ranked.length >= 1 && (
-        <div className="rs-podium-section">
-          <div className="rs-section-label">Top Phòng Ban</div>
-          <div className="rs-podium">
-            {([1, 0, 2] as const).map((idx) => {
-              const r = ranked[idx];
-              const place = idx + 1;
-              const color = medalColors[place];
-              if (!r) return <div key={idx} className="rs-podium-slot rs-podium-slot--empty" />;
-              return (
-                <div key={r.id} className={`rs-podium-slot rs-podium-slot--${place}${r.isMyDept ? " rs-podium-mine" : ""}`}>
-                  <div className="rs-pm-card" style={{ "--mc": color } as React.CSSProperties}>
-                    <div className={`rs-pm-rank-badge rs-pm-rank-badge--${place}`}>{place}</div>
-                    <span className="rs-pm-code">{r.code ?? r.name}</span>
-                    <span className="rs-pm-score" style={{ color }}>{fmt(r.avgScore)}</span>
-                  </div>
-                  <div
-                    className="rs-pm-block"
-                    style={{ height: blockH[place], borderColor: color, boxShadow: `0 4px 32px ${color}22` }}
-                  >
-                    <span className="rs-pm-num" style={{ color }}>{place}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Rankings 4+ ── */}
-      {tableRows.length > 0 && (
-        <div className="rs-list-section">
-          {ranked.length > 3 && (
-            <div className="rs-section-label">Bảng Xếp Hạng</div>
-          )}
-          <div className="rs-list">
-            {tableRows.map((r, i) => {
-              const barPct = pct(r.avgScore, maxScore);
-              return (
-                <div
-                  key={r.id}
-                  className={`rs-row${r.isMyDept ? " rs-row--mine" : ""}${r.avgScore == null ? " rs-row--unranked" : ""}`}
-                  style={{ animationDelay: `${0.04 + i * 0.03}s` } as React.CSSProperties}
+                  {years.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="rs-select-icon" />
+              </div>
+              <div className="rs-period-select-wrap">
+                <select
+                  className="rs-period-select"
+                  value={activeQuarter ?? ""}
+                  onChange={handleQuarterChange}
                 >
-                  <span className="rs-row-rank">{r.avgScore != null ? r.rank : "—"}</span>
-                  <div className="rs-row-mid">
-                    <div className="rs-row-top">
-                      <span className="rs-row-code">{r.code ?? r.name}</span>
-                      {r.isMyDept && <span className="rs-you-tag">bạn</span>}
-                    </div>
-                    <div className="rs-bar-track">
-                      <div className="rs-bar-fill" style={{ width: `${barPct.toFixed(1)}%` }} />
-                    </div>
-                  </div>
-                  <div className="rs-row-score-col">
-                    <span className="rs-row-score">{fmt(r.avgScore)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <style>{rsStyles}</style>
-    </div>
-
-      {/* ── Import Modal (outside rs-root to avoid transform stacking context) ── */}
-      {showImportModal && (
-        <div className="rs-modal-overlay" onClick={() => setShowImportModal(false)}>
-          <div className="rs-modal" onClick={e => e.stopPropagation()}>
-            <div className="rs-modal-header">
-              <span className="rs-modal-title">Nhập kết quả từ CSV</span>
-              <button className="rs-modal-close" onClick={() => setShowImportModal(false)}><X size={16} /></button>
+                  <option value="">Cả năm</option>
+                  {quartersForYear.map((q) => (
+                    <option key={q} value={q}>
+                      Quý {q}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="rs-select-icon" />
+              </div>
             </div>
-            <div className="rs-modal-body">
-              <div className="rs-modal-region-tabs">
-                {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
+            {canManageAll && (
+              <div className="rs-region-tabs">
+                {(["Miền Bắc", "Miền Nam"] as const).map((r) => (
                   <button
                     key={r}
-                    className={`rs-modal-region-tab${importRegion === r ? ' rs-modal-region-tab--active' : ''}`}
-                    onClick={() => { setImportRegion(r); setImportPreview([]); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    className={`rs-region-tab${regionFilter === r ? " rs-region-tab--active" : ""}`}
+                    onClick={() => setRegionFilter(r)}
                   >
                     {r}
                   </button>
                 ))}
               </div>
-              <p className="rs-modal-period-info">Kỳ: <strong>{periodLabel}</strong></p>
+            )}
+            {activeQuarter !== null && periodStatus === "closed" && (
+              <span className="rs-locked-badge">
+                <Lock size={10} /> Đã tổng kết
+              </span>
+            )}
+          </div>
+          <div className="rs-header-right">
+            {canManageAll && periodId !== null && (
+              <button
+                className="rs-dl-btn rs-import-btn"
+                onClick={openImportModal}
+                disabled={isSaving}
+              >
+                <Upload size={13} /> {isSaving ? "Đang lưu…" : "Nhập CSV"}
+              </button>
+            )}
+            {(canManageAll || periodStatus === "closed") &&
+              results.length > 0 && (
+                <button
+                  className="rs-dl-btn rs-dl-btn--xls"
+                  onClick={handleDownloadXLS}
+                  title="Tải Excel"
+                >
+                  <Table2 size={13} /> Excel
+                </button>
+              )}
+          </div>
+        </div>
+
+        {/* ── Empty state ── */}
+        {displayResults.length === 0 && (
+          <div className="rs-empty">
+            {canManageAll
+              ? `Không có phòng ban nào thuộc ${regionFilter}.`
+              : "Chưa có dữ liệu đánh giá nào được nộp trong kỳ này."}
+          </div>
+        )}
+
+        {/* ── Podium (top 3) ── */}
+        {ranked.length >= 1 && (
+          <div className="rs-podium-section">
+            <div className="rs-section-label">Top Phòng Ban</div>
+            <div className="rs-podium">
+              {([1, 0, 2] as const).map((idx) => {
+                const r = ranked[idx];
+                const place = idx + 1;
+                const color = medalColors[place];
+                if (!r)
+                  return (
+                    <div
+                      key={idx}
+                      className="rs-podium-slot rs-podium-slot--empty"
+                    />
+                  );
+                return (
+                  <div
+                    key={r.id}
+                    className={`rs-podium-slot rs-podium-slot--${place}${r.isMyDept ? " rs-podium-mine" : ""}`}
+                  >
+                    <div
+                      className="rs-pm-card"
+                      style={{ "--mc": color } as React.CSSProperties}
+                    >
+                      <div
+                        className={`rs-pm-rank-badge rs-pm-rank-badge--${place}`}
+                      >
+                        {place}
+                      </div>
+                      <span className="rs-pm-code">{r.code ?? r.name}</span>
+                      <span className="rs-pm-score" style={{ color }}>
+                        {fmt(r.avgScore)}
+                      </span>
+                    </div>
+                    <div
+                      className="rs-pm-block"
+                      style={{
+                        height: blockH[place],
+                        borderColor: color,
+                        boxShadow: `0 4px 32px ${color}22`,
+                      }}
+                    >
+                      <span className="rs-pm-num" style={{ color }}>
+                        {place}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Rankings 4+ ── */}
+        {tableRows.length > 0 && (
+          <div className="rs-list-section">
+            {ranked.length > 3 && (
+              <div className="rs-section-label">Bảng Xếp Hạng</div>
+            )}
+            <div className="rs-list">
+              {tableRows.map((r, i) => {
+                const barPct = pct(r.avgScore, maxScore);
+                return (
+                  <div
+                    key={r.id}
+                    className={`rs-row${r.isMyDept ? " rs-row--mine" : ""}${r.avgScore == null ? " rs-row--unranked" : ""}`}
+                    style={
+                      {
+                        animationDelay: `${0.04 + i * 0.03}s`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <span className="rs-row-rank">
+                      {r.avgScore != null ? r.rank : "—"}
+                    </span>
+                    <div className="rs-row-mid">
+                      <div className="rs-row-top">
+                        <span className="rs-row-code">{r.code ?? r.name}</span>
+                        {r.isMyDept && <span className="rs-you-tag">bạn</span>}
+                      </div>
+                      <div className="rs-bar-track">
+                        <div
+                          className="rs-bar-fill"
+                          style={{ width: `${barPct.toFixed(1)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="rs-row-score-col">
+                      <span className="rs-row-score">{fmt(r.avgScore)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <style>{rsStyles}</style>
+      </div>
+
+      {/* ── Import Modal (outside rs-root to avoid transform stacking context) ── */}
+      {showImportModal && (
+        <div
+          className="rs-modal-overlay"
+          onClick={() => setShowImportModal(false)}
+        >
+          <div className="rs-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="rs-modal-header">
+              <span className="rs-modal-title">Nhập kết quả từ CSV</span>
+              <button
+                className="rs-modal-close"
+                onClick={() => setShowImportModal(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="rs-modal-body">
+              <div className="rs-modal-region-tabs">
+                {(["Miền Bắc", "Miền Nam"] as const).map((r) => (
+                  <button
+                    key={r}
+                    className={`rs-modal-region-tab${importRegion === r ? " rs-modal-region-tab--active" : ""}`}
+                    onClick={() => {
+                      setImportRegion(r);
+                      setImportPreview([]);
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <p className="rs-modal-period-info">
+                Kỳ: <strong>{periodLabel}</strong>
+              </p>
               <label className="rs-modal-file-label">
                 <Upload size={14} />
                 <span>Chọn file CSV…</span>
-                <input ref={fileInputRef} type="file" accept=".csv" className="rs-modal-file-input" onChange={handleFileChange} />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="rs-modal-file-input"
+                  onChange={handleFileChange}
+                />
               </label>
-              <p className="rs-modal-hint">CSV cần cột <code>Phòng ban</code> và <code>điểm</code></p>
+              <p className="rs-modal-hint">
+                CSV cần cột <code>Phòng ban</code> và <code>điểm</code>
+              </p>
               {importPreview.length > 0 && (
                 <div className="rs-modal-preview">
                   <div className="rs-modal-preview-title">
-                    {importPreview.length} dòng &mdash; {importPreview.filter(r => r.deptId).length} khớp
+                    {importPreview.length} dòng &mdash;{" "}
+                    {importPreview.filter((r) => r.deptId).length} khớp
                   </div>
                   <div className="rs-modal-table-wrap">
                     <table className="rs-modal-table">
                       <thead>
-                        <tr><th>Tên trong CSV</th><th>Phòng ban khớp</th><th>Điểm</th></tr>
+                        <tr>
+                          <th>Tên trong CSV</th>
+                          <th>Phòng ban khớp</th>
+                          <th>Điểm</th>
+                        </tr>
                       </thead>
                       <tbody>
                         {importPreview.map((row, i) => (
-                          <tr key={i} className={row.deptId ? '' : 'rs-modal-row--unmatched'}>
+                          <tr
+                            key={i}
+                            className={
+                              row.deptId ? "" : "rs-modal-row--unmatched"
+                            }
+                          >
                             <td>{row.csvName}</td>
-                            <td>{row.deptName ?? <span className="rs-modal-no-match">Không tìm thấy</span>}</td>
-                            <td className="rs-modal-score-cell">{(Math.round(row.score * 100) / 100).toFixed(2)}</td>
+                            <td>
+                              {row.deptName ?? (
+                                <span className="rs-modal-no-match">
+                                  Không tìm thấy
+                                </span>
+                              )}
+                            </td>
+                            <td className="rs-modal-score-cell">
+                              {(Math.round(row.score * 100) / 100).toFixed(2)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -948,19 +1104,23 @@ export default function ResultsClient({
               )}
             </div>
             <div className="rs-modal-footer">
-              <button className="rs-modal-cancel" onClick={() => setShowImportModal(false)}>Huỷ</button>
+              <button
+                className="rs-modal-cancel"
+                onClick={() => setShowImportModal(false)}
+              >
+                Huỷ
+              </button>
               <button
                 className="rs-modal-confirm"
                 onClick={handleConfirmImport}
-                disabled={importPreview.filter(r => r.deptId).length === 0}
+                disabled={importPreview.filter((r) => r.deptId).length === 0}
               >
-                Áp dụng ({importPreview.filter(r => r.deptId).length})
+                Áp dụng ({importPreview.filter((r) => r.deptId).length})
               </button>
             </div>
           </div>
         </div>
       )}
-
     </>
   );
 }
@@ -1134,16 +1294,16 @@ const rsStyles = `
   [data-theme="light"] .rs-pm-rank-badge--3 { border-color: rgba(170,110,80,0.45); background: rgba(200,149,108,0.07); }
   [data-theme="light"] .rs-pm-code { color: #111; }
   [data-theme="light"] .rs-pm-block { background: #f0f0f0; border-color: rgba(0,0,0,0.08); }
-  [data-theme="light"] .rs-pm-num { color: #000; opacity: 0.12; }
+  [data-theme="light"] .rs-pm-num { color: #000; opacity: 0.45; }
   [data-theme="light"] .rs-list { border-color: rgba(0,0,0,0.08); }
   [data-theme="light"] .rs-row { border-bottom-color: rgba(0,0,0,0.05); }
   [data-theme="light"] .rs-row:hover { background: rgba(0,0,0,0.015); }
   [data-theme="light"] .rs-row--mine { background: rgba(204,0,0,0.03); }
   [data-theme="light"] .rs-row--mine:hover { background: rgba(204,0,0,0.06); }
-  [data-theme="light"] .rs-row-rank { color: rgba(0,0,0,0.35); background: rgba(0,0,0,0.02); border-right-color: rgba(0,0,0,0.06); }
+  [data-theme="light"] .rs-row-rank { color: #111 !important; background: rgba(0,0,0,0.02); border-right-color: rgba(0,0,0,0.06); font-weight: 800; }
   [data-theme="light"] .rs-row-code { color: rgba(0,0,0,0.85); }
   [data-theme="light"] .rs-bar-track { background: rgba(0,0,0,0.07); }
-  [data-theme="light"] .rs-row-score { color: rgba(0,0,0,0.78); }
+  [data-theme="light"] .rs-row-score { color: #111 !important; font-weight: 800; }
   [data-theme="light"] .rs-row-score-col { border-left-color: rgba(0,0,0,0.06); }
   [data-theme="light"] .rs-section-label { color: rgba(0,0,0,0.55); }
 
