@@ -57,9 +57,11 @@ interface Props {
   totalSubmitted: number;
   canManageAll: boolean;
   myRegion?: string | null;
+  periodId: string | null;
+  initialOverrides: Record<string, Record<string, number>>;
 }
 
-function fmt(n: number | null, decimals = 1) {
+function fmt(n: number | null, decimals = 2) {
   return n == null ? "—" : n.toFixed(decimals);
 }
 
@@ -551,6 +553,8 @@ export default function ResultsClient({
   totalSubmitted,
   canManageAll,
   myRegion = null,
+  periodId,
+  initialOverrides,
 }: Props) {
   const router = useRouter();
 
@@ -560,24 +564,49 @@ export default function ResultsClient({
   const [showImportModal, setShowImportModal] = useState(false)
   const [importRegion, setImportRegion] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
   const [importPreview, setImportPreview] = useState<ImportRow[]>([])
-  const [importedOverrides, setImportedOverrides] = useState<Record<string, Record<string, number>>>({})
+  const [importedOverrides, setImportedOverrides] = useState<Record<string, Record<string, number>>>(initialOverrides)
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    setImportedOverrides(initialOverrides)
+  }, [periodId])
 
   function normKey(s: string) {
     return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd').replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+  }
+
+  // Proper quoted-field CSV splitter
+  function splitCSVLine(line: string, sep: string): string[] {
+    const cols: string[] = []
+    let cur = '', inQ = false
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ }
+      else if (ch === sep && !inQ) { cols.push(cur.trim()); cur = '' }
+      else { cur += ch }
+    }
+    cols.push(cur.trim())
+    return cols
   }
 
   function parseCSVRows(text: string) {
     const sep = text.includes(';') ? ';' : ','
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
     if (lines.length < 2) return []
-    const header = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''))
+    const header = splitCSVLine(lines[0], sep).map(h => h.replace(/^"|"$/g, ''))
     const deptIdx = header.findIndex(h => normKey(h).includes('phong') || normKey(h) === 'dept')
     const scoreIdx = header.findIndex(h => normKey(h).includes('diem') || normKey(h) === 'score')
     if (deptIdx === -1 || scoreIdx === -1) return []
     return lines.slice(1).flatMap(line => {
-      const cols = line.split(sep).map(c => c.trim().replace(/^"|"$/g, ''))
+      const cols = splitCSVLine(line, sep).map(c => c.replace(/^"|"$/g, ''))
       const name = cols[deptIdx]?.trim()
-      const score = parseFloat((cols[scoreIdx] ?? '').replace(',', '.'))
+      let rawScore = (cols[scoreIdx] ?? '').replace(',', '.')
+      // If score has no decimal but extra columns exist, it may be a comma-decimal split:
+      // e.g. "69,22" with comma sep → cols[scoreIdx]="69", cols[scoreIdx+1]="22"
+      if (!rawScore.includes('.') && cols.length > header.length) {
+        const frac = cols[scoreIdx + 1]?.trim()
+        if (frac && /^\d{1,2}$/.test(frac)) rawScore = rawScore + '.' + frac
+      }
+      const score = parseFloat(rawScore)
       if (!name || isNaN(score)) return []
       return [{ deptName: name, score }]
     })
@@ -607,17 +636,32 @@ export default function ResultsClient({
     reader.readAsText(file, 'UTF-8')
   }
 
-  function handleConfirmImport() {
+  async function handleConfirmImport() {
     const override: Record<string, number> = {}
-    importPreview.forEach(r => { if (r.deptId) override[r.deptId] = r.score })
+    importPreview.forEach(r => {
+      if (r.deptId) override[r.deptId] = Math.round(r.score * 100) / 100
+    })
     setImportedOverrides(prev => ({ ...prev, [importRegion]: override }))
     setShowImportModal(false)
     setImportPreview([])
     if (fileInputRef.current) fileInputRef.current.value = ''
-  }
 
-  function handleClearImport(region: string) {
-    setImportedOverrides(prev => { const n = { ...prev }; delete n[region]; return n })
+    if (periodId) {
+      setIsSaving(true)
+      try {
+        await fetch('/api/results/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            period_id: periodId,
+            region: importRegion,
+            overrides: Object.entries(override).map(([dept_id, score]) => ({ dept_id, score })),
+          }),
+        })
+      } finally {
+        setIsSaving(false)
+      }
+    }
   }
 
   function openImportModal() {
@@ -766,16 +810,9 @@ export default function ResultsClient({
           )}
         </div>
         <div className="rs-header-right">
-          {canManageAll && importedOverrides[regionFilter] && Object.keys(importedOverrides[regionFilter]).length > 0 && (
-            <span className="rs-import-badge">
-              <span className="rs-import-badge-dot" />
-              Đã nhập ({Object.keys(importedOverrides[regionFilter]).length})
-              <button className="rs-import-badge-clear" onClick={() => handleClearImport(regionFilter)}><X size={10} /></button>
-            </span>
-          )}
-          {canManageAll && (
-            <button className="rs-dl-btn rs-import-btn" onClick={openImportModal}>
-              <Upload size={13} /> Nhập CSV
+          {canManageAll && periodId !== null && (
+            <button className="rs-dl-btn rs-import-btn" onClick={openImportModal} disabled={isSaving}>
+              <Upload size={13} /> {isSaving ? 'Đang lưu…' : 'Nhập CSV'}
             </button>
           )}
           {(canManageAll || periodStatus === "closed") && results.length > 0 && (
@@ -901,7 +938,7 @@ export default function ResultsClient({
                           <tr key={i} className={row.deptId ? '' : 'rs-modal-row--unmatched'}>
                             <td>{row.csvName}</td>
                             <td>{row.deptName ?? <span className="rs-modal-no-match">Không tìm thấy</span>}</td>
-                            <td className="rs-modal-score-cell">{row.score}</td>
+                            <td className="rs-modal-score-cell">{(Math.round(row.score * 100) / 100).toFixed(2)}</td>
                           </tr>
                         ))}
                       </tbody>

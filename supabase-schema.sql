@@ -190,3 +190,30 @@ create trigger set_criteria_updated_at            before update on public.criter
 create trigger set_evaluations_updated_at         before update on public.evaluations          for each row execute function public.set_updated_at();
 create trigger set_evaluation_scores_updated_at   before update on public.evaluation_scores    for each row execute function public.set_updated_at();
 create trigger set_api_integrations_updated_at    before update on public.api_integrations     for each row execute function public.set_updated_at();
+
+-- ── Score Overrides (CSV import) ─────────────────────────────────────────────
+create table if not exists public.score_overrides (
+  id          uuid primary key default gen_random_uuid(),
+  period_id   uuid not null references public.evaluation_periods(id) on delete cascade,
+  dept_id     uuid not null references public.departments(id)        on delete cascade,
+  score       numeric(6,2) not null,
+  imported_by uuid references public.users(id),
+  imported_at timestamptz not null default now(),
+  unique (period_id, dept_id)
+);
+
+alter table public.score_overrides enable row level security;
+create policy "temp_allow_all_overrides" on public.score_overrides for all using (true) with check (true);
+
+-- ── OTP Codes (email login) ──────────────────────────────────────────────────
+create table if not exists public.otp_codes (
+  id          uuid primary key default gen_random_uuid(),
+  email       text not null,
+  code        text not null,
+  expires_at  timestamptz not null,
+  used        boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index if not exists idx_otp_codes_email on public.otp_codes(email);
+alter table public.otp_codes enable row level security;
+create policy "temp_allow_all_otp" on public.otp_codes for all using (true) with check (true);

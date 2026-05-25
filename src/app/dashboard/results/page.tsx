@@ -72,6 +72,8 @@ export default async function ResultsPage({
   let totalSubmitted: number
   let periodLabel: string
   let periodStatus: string
+  let activePeriodId: string | null = null
+  let initialOverrides: Record<string, Record<string, number>> = {}
   const maxScore = 100
 
   if (activeQuarter !== null) {
@@ -85,6 +87,8 @@ export default async function ResultsPage({
         </div>
       )
     }
+
+    activePeriodId = period.id
 
     const [criteriaResult, matrixResult, evalsResult] = await Promise.all([
       supabase.from('criteria').select('id, code, name, weight, input_type').eq('period_id', period.id).order('display_order'),
@@ -170,6 +174,20 @@ export default async function ResultsPage({
       }
     })
 
+    // Load persisted score overrides
+    if (canManageAll) {
+      const { data: overridesData } = await supabase
+        .from('score_overrides')
+        .select('dept_id, score')
+        .eq('period_id', period.id)
+      for (const ov of overridesData ?? []) {
+        const dept = depts.find(d => d.id === ov.dept_id)
+        const region = dept?.region ?? 'Miền Bắc'
+        if (!initialOverrides[region]) initialOverrides[region] = {}
+        initialOverrides[region][ov.dept_id] = Number(ov.score)
+      }
+    }
+
     periodLabel  = `Quý ${period.quarter} · ${period.year}`
     periodStatus = period.status
 
@@ -187,19 +205,28 @@ export default async function ResultsPage({
       results = []
       totalSubmitted = 0
     } else {
-      const [yCritRes, yEvalsRes, yAutoRes] = await Promise.all([
+      const [yCritRes, yEvalsRes, yAutoRes, yOverridesRes] = await Promise.all([
         supabase.from('criteria').select('id, weight, input_type, period_id').in('period_id', yearPeriodIds),
         supabase.from('evaluations').select('id, target_id, total_score, period_id').in('period_id', yearPeriodIds).eq('status', 'submitted'),
         supabase.from('auto_scores').select('dept_id, criteria_id, raw_score, period_id').in('period_id', yearPeriodIds),
+        supabase.from('score_overrides').select('dept_id, score, period_id').in('period_id', yearPeriodIds),
       ])
 
       totalSubmitted = (yEvalsRes.data ?? []).length
 
-      // Per-period per-dept combined score
+      // Build override map: periodId → deptId → final score
+      const yOverrideMap = new Map<string, Map<string, number>>()
+      for (const ov of yOverridesRes.data ?? []) {
+        if (!yOverrideMap.has(ov.period_id)) yOverrideMap.set(ov.period_id, new Map())
+        yOverrideMap.get(ov.period_id)!.set(ov.dept_id, Number(ov.score))
+      }
+
+      // Per-period per-dept combined score (uses override if present)
       const periodDeptScore = new Map<string, Map<string, number | null>>()
 
       for (const yp of yearPeriods) {
-        const pCrit = (yCritRes.data ?? []).filter(c => c.period_id === yp.id)
+        const periodOverrides = yOverrideMap.get(yp.id)
+        const pCrit  = (yCritRes.data ?? []).filter(c => c.period_id === yp.id)
         const pEvals = (yEvalsRes.data ?? []).filter(e => e.period_id === yp.id)
         const pAuto  = (yAutoRes.data ?? []).filter(a => a.period_id === yp.id)
 
@@ -215,6 +242,12 @@ export default async function ResultsPage({
 
         const deptMap = new Map<string, number | null>()
         for (const dept of depts) {
+          // Use imported override score as the final result if available
+          if (periodOverrides?.has(dept.id)) {
+            deptMap.set(dept.id, periodOverrides.get(dept.id)!)
+            continue
+          }
+
           const received  = pEvals.filter(e => e.target_id === dept.id)
           const manualAvg = received.length > 0
             ? received.reduce((s, e) => s + (e.total_score ?? 0), 0) / received.length
@@ -287,6 +320,8 @@ export default async function ResultsPage({
       totalSubmitted={totalSubmitted}
       canManageAll={canManageAll}
       myRegion={myRegion}
+      periodId={activePeriodId}
+      initialOverrides={initialOverrides}
     />
   )
 }

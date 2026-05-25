@@ -1,5 +1,4 @@
 import NextAuth from 'next-auth'
-import Google from 'next-auth/providers/google'
 import Credentials from 'next-auth/providers/credentials'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { User } from 'next-auth'
@@ -31,81 +30,88 @@ declare module 'next-auth' {
 
 const isDev = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === 'true'
 
+async function fetchDbUser(email: string): Promise<User | null> {
+  const supabase = createServiceClient()
+  const { data: user } = await supabase
+    .from('users')
+    .select('id, name, email, role, department_id, departments(name)')
+    .eq('email', email)
+    .maybeSingle()
+  if (!user) return null
+  const deptRaw = user.departments
+  const dept = Array.isArray(deptRaw)
+    ? (deptRaw[0] as { name: string } | undefined)
+    : (deptRaw as { name: string } | null)
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role as UserRole,
+    departmentId: user.department_id ?? null,
+    departmentName: dept?.name ?? null,
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    // Email OTP login
+    Credentials({
+      id: 'otp-credentials',
+      name: 'Email OTP',
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        code:  { label: 'Code',  type: 'text'  },
+      },
+      async authorize(credentials): Promise<User | null> {
+        if (!credentials?.email || !credentials?.code) return null
+        const email = (credentials.email as string).toLowerCase().trim()
+        const code  = (credentials.code  as string).trim()
+
+        const supabase = createServiceClient()
+        const now = new Date().toISOString()
+
+        const { data: otp } = await supabase
+          .from('otp_codes')
+          .select('id, code')
+          .eq('email', email)
+          .eq('used', false)
+          .gt('expires_at', now)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (!otp || otp.code !== code) return null
+
+        // Consume the OTP so it cannot be reused
+        await supabase.from('otp_codes').update({ used: true }).eq('id', otp.id)
+
+        return fetchDbUser(email)
+      },
     }),
-    // Dev-only: log in as any DB user by email, no password needed
+
+    // Dev-only bypass (no OTP needed)
     ...(isDev ? [Credentials({
       id: 'dev-credentials',
       name: 'Dev Login',
-      credentials: {
-        email: { label: 'Email', type: 'email' },
-      },
+      credentials: { email: { label: 'Email', type: 'email' } },
       async authorize(credentials): Promise<User | null> {
         if (!credentials?.email) return null
-        const supabase = createServiceClient()
-        const { data: user } = await supabase
-          .from('users')
-          .select('id, name, email, role, department_id, departments(name)')
-          .eq('email', credentials.email as string)
-          .maybeSingle()
-        if (!user) return null
-        const deptRaw = user.departments
-        const dept = Array.isArray(deptRaw)
-          ? (deptRaw[0] as { name: string } | undefined)
-          : (deptRaw as { name: string } | null)
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role as UserRole,
-          departmentId: user.department_id ?? null,
-          departmentName: dept?.name ?? null,
-        }
+        return fetchDbUser((credentials.email as string).toLowerCase().trim())
       },
     })] : []),
   ],
+
   callbacks: {
-    async signIn({ user, account }) {
-      // Dev credentials: already validated in authorize()
-      if (account?.provider === 'dev-credentials') return true
-      // Google: whitelist check
-      if (account?.provider !== 'google') return false
-      if (!user.email) return false
-      const supabase = createServiceClient()
-      const { data } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', user.email)
-        .maybeSingle()
-      return !!data
+    async signIn({ account }) {
+      return account?.provider === 'otp-credentials' || account?.provider === 'dev-credentials'
     },
 
     async jwt({ token, account, user }) {
-      if (account?.provider === 'google' && user?.email) {
-        // Fetch DB user data on first Google sign-in
-        const supabase = createServiceClient()
-        const { data } = await supabase
-          .from('users')
-          .select('id, role, department_id, departments(name)')
-          .eq('email', user.email)
-          .maybeSingle()
-        if (data) {
-          token.sub = data.id
-          token['role'] = data.role
-          token['departmentId'] = data.department_id ?? null
-          const deptRaw = data.departments
-          const dept = Array.isArray(deptRaw)
-            ? (deptRaw[0] as { name: string } | undefined)
-            : (deptRaw as { name: string } | null)
-          token['departmentName'] = dept?.name ?? null
-        }
-      } else if (account?.provider === 'dev-credentials' && user) {
-        // Dev credentials: user object already has everything
+      if (
+        (account?.provider === 'otp-credentials' || account?.provider === 'dev-credentials')
+        && user
+      ) {
         token.sub = user.id
         token['role'] = user.role!
         token['departmentId'] = user.departmentId ?? null
@@ -122,8 +128,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session
     },
   },
-  pages: {
-    signIn: '/login',
-  },
+
+  pages: { signIn: '/login' },
   session: { strategy: 'jwt' },
 })
