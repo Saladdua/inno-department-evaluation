@@ -21,26 +21,18 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient()
 
-  // Check email exists in system
-  const { data: user } = await supabase
-    .from('users')
-    .select('id, name')
-    .eq('email', email)
-    .maybeSingle()
+  // Run user lookup and rate-limit check in parallel
+  const cooldownSince = new Date(Date.now() - 60_000).toISOString()
+  const [{ data: user }, { data: recent }] = await Promise.all([
+    supabase.from('users').select('id, name').eq('email', email).maybeSingle(),
+    supabase.from('otp_codes').select('created_at')
+      .eq('email', email).eq('used', false)
+      .gt('created_at', cooldownSince).limit(1).maybeSingle(),
+  ])
+
   if (!user) {
     return NextResponse.json({ error: 'Email này không có trong hệ thống.' }, { status: 404 })
   }
-
-  // Rate-limit: 1 request per 60 s per email
-  const cooldownSince = new Date(Date.now() - 60_000).toISOString()
-  const { data: recent } = await supabase
-    .from('otp_codes')
-    .select('created_at')
-    .eq('email', email)
-    .eq('used', false)
-    .gt('created_at', cooldownSince)
-    .limit(1)
-    .maybeSingle()
 
   if (recent) {
     const waitSecs = Math.ceil(
