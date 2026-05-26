@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useTransition, useEffect, useRef } from "react";
 import { signIn } from "next-auth/react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 const LOGO_URL = process.env.NEXT_PUBLIC_COMPANY_LOGO_URL ?? "";
 
@@ -162,7 +162,6 @@ function KineticGrid() {
 function LoginForm() {
   const searchParams = useSearchParams();
   const callbackUrl  = searchParams.get("callbackUrl") ?? "/dashboard";
-  const router       = useRouter();
 
   const isDev = process.env.NODE_ENV === "development" || process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === "true";
 
@@ -271,7 +270,7 @@ function LoginForm() {
     const result = await signIn("otp-credentials", { email, code, redirect: false });
     setIsLoading(false);
     if (result?.ok) {
-      router.push(callbackUrl);
+      window.location.href = callbackUrl;
     } else {
       setError("Mã OTP không đúng hoặc đã hết hạn.");
       setDigits(["", "", "", "", "", ""]);
