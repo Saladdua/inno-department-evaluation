@@ -1,7 +1,7 @@
 import { auth } from '@/auth'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getSelectedPeriod } from '@/lib/selected-period'
-import MatrixClient, { type Department, type MatrixEntry, type CommitEntry } from './MatrixClient'
+import MatrixClient, { type Department, type MatrixEntry, type CommitEntry, type PeriodOption } from './MatrixClient'
 
 export default async function MatrixPage() {
   const session = await auth()
@@ -11,14 +11,17 @@ export default async function MatrixPage() {
 
   const supabase = createServiceClient()
 
+  const { data: periodsData } = await supabase
+    .from('evaluation_periods')
+    .select('id, quarter, year, matrix_locked, status')
+    .order('year', { ascending: false })
+    .order('quarter', { ascending: false })
+  const allPeriods = periodsData ?? []
+
   const basePeriod = await getSelectedPeriod()
-  const { data: period } = basePeriod
-    ? await supabase
-        .from('evaluation_periods')
-        .select('id, quarter, year, matrix_locked, status')
-        .eq('id', basePeriod.id)
-        .maybeSingle()
-    : { data: null }
+  const period = basePeriod
+    ? (allPeriods.find(p => p.id === basePeriod.id) ?? allPeriods[0] ?? null)
+    : (allPeriods[0] ?? null)
 
   const { data: depts } = await supabase
     .from('departments')
@@ -61,12 +64,15 @@ export default async function MatrixPage() {
 
   const periodLabel = period ? `Quý ${period.quarter} · ${period.year}` : 'Chưa có kỳ'
 
+  const periods: PeriodOption[] = allPeriods.map(p => ({ id: p.id, quarter: p.quarter, year: p.year }))
+
   return (
     <MatrixClient
       initialDepts={(depts ?? []) as Department[]}
       initialEntries={entries}
       periodId={period?.id ?? null}
       periodLabel={periodLabel}
+      periods={periods}
       role={role}
       myDeptId={myDeptId}
       myUserId={myUserId}

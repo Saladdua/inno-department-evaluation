@@ -14,6 +14,7 @@ export default async function ResultsDetailPage({
   if (!session) redirect('/login')
 
   const role = session.user.role as 'super_admin' | 'leadership' | 'department'
+  if (role === 'leadership') redirect('/dashboard/status')
   const myDeptId = session.user.departmentId ?? null
   const myUserId = session.user.id
 
@@ -60,12 +61,7 @@ export default async function ResultsDetailPage({
     )
   }
 
-  // Determine region for filtering (leadership: from users table; department: from their dept)
   let myRegion: string | null = null
-  if (role === 'leadership') {
-    const { data: ldr } = await supabase.from('users').select('region').eq('id', myUserId).maybeSingle()
-    myRegion = ldr?.region ?? 'Miền Bắc'
-  }
 
   const [criteriaResult, deptsResult, evalsResult] = await Promise.all([
     supabase.from('criteria').select('id, code, name, weight, region').eq('period_id', period.id).order('display_order'),

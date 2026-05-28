@@ -12,6 +12,13 @@ export async function GET(req: Request) {
   const supabase = createServiceClient()
   const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
 
+  // Fetch user creation date so new accounts don't see historical notifications
+  const { data: userData } = await supabase
+    .from('users')
+    .select('created_at')
+    .eq('id', user.id)
+    .maybeSingle()
+
   // Types visible to each role
   const visibleTypes = canManageAll
     ? ['report_submitted', 'period_started', 'period_ended']
@@ -23,6 +30,10 @@ export async function GET(req: Request) {
     .in('type', visibleTypes)
     .order('created_at', { ascending: false })
     .limit(50)
+
+  if (userData?.created_at) {
+    query = query.gte('created_at', userData.created_at)
+  }
 
   if (!canManageAll) {
     if (user.departmentId) {

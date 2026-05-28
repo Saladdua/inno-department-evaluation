@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useTransition, useMemo, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Trash2, Info, GripVertical, ArrowUpDown, X, Check, Lock, Unlock, Send, Pencil, ChevronDown } from 'lucide-react'
+import { setSelectedPeriod } from '@/app/actions/period'
 
 export interface Department {
   id: string
@@ -22,6 +24,12 @@ export interface CommitEntry {
   committed_at: string
 }
 
+export interface PeriodOption {
+  id: string
+  quarter: number
+  year: number
+}
+
 type Role = 'super_admin' | 'leadership' | 'department'
 
 function deptLabel(d: Department) {
@@ -33,6 +41,7 @@ export default function MatrixClient({
   initialEntries,
   periodId,
   periodLabel,
+  periods,
   role,
   myDeptId,
   myUserId,
@@ -45,6 +54,7 @@ export default function MatrixClient({
   initialEntries: MatrixEntry[]
   periodId: string | null
   periodLabel: string
+  periods: PeriodOption[]
   role: Role
   myDeptId: string | null
   myUserId: string | null
@@ -53,6 +63,7 @@ export default function MatrixClient({
   committedDepts: CommitEntry[]
   myRegion: string | null
 }) {
+  const router = useRouter()
   const [entries, setEntries] = useState<MatrixEntry[]>(initialEntries)
   const [isPending, startTransition] = useTransition()
   const [confirmClear, setConfirmClear] = useState(false)
@@ -79,6 +90,30 @@ export default function MatrixClient({
 
   const canManageAll = role === 'super_admin'
   const depts = initialDepts
+
+  // Year / Quarter filter
+  const activePeriod = periods.find(p => p.id === periodId) ?? periods[0]
+  const [yearFilter, setYearFilter] = useState<number>(activePeriod?.year ?? new Date().getFullYear())
+  const [quarterFilter, setQuarterFilter] = useState<number>(activePeriod?.quarter ?? 1)
+  const [isPeriodSwitching, startPeriodSwitch] = useTransition()
+
+  function handleYearFilter(year: number) {
+    setYearFilter(year)
+    const match = periods.find(p => p.year === year && p.quarter === quarterFilter)
+      ?? periods.filter(p => p.year === year).sort((a, b) => a.quarter - b.quarter)[0]
+    if (match && match.id !== periodId) {
+      setQuarterFilter(match.quarter)
+      startPeriodSwitch(async () => { await setSelectedPeriod(match.id); router.refresh() })
+    }
+  }
+
+  function handleQuarterFilter(quarter: number) {
+    setQuarterFilter(quarter)
+    const match = periods.find(p => p.year === yearFilter && p.quarter === quarter)
+    if (match && match.id !== periodId) {
+      startPeriodSwitch(async () => { await setSelectedPeriod(match.id); router.refresh() })
+    }
+  }
 
   // Region filter — locked to myRegion for dept/leadership; tabs for super_admin
   const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
@@ -307,6 +342,28 @@ export default function MatrixClient({
       {/* ── Header ── */}
       <div className="mx-header">
         <div className="mx-header-left">
+          {periods.length > 1 && (() => {
+            const availableYears = [...new Set(periods.map(p => p.year))].sort((a, b) => b - a)
+            return (
+              <div className={`mx-yq-wrap${isPeriodSwitching ? ' mx-yq-wrap--loading' : ''}`}>
+                <div className="mx-select-wrap">
+                  <select className="mx-select" value={yearFilter} onChange={e => handleYearFilter(Number(e.target.value))} disabled={isPeriodSwitching}>
+                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <ChevronDown size={12} className="mx-select-icon" />
+                </div>
+                <div className="mx-select-wrap">
+                  <select className="mx-select" value={quarterFilter} onChange={e => handleQuarterFilter(Number(e.target.value))} disabled={isPeriodSwitching}>
+                    {[1,2,3,4].map(q => {
+                      const exists = periods.some(p => p.year === yearFilter && p.quarter === q)
+                      return <option key={q} value={q} disabled={!exists}>Quý {q}</option>
+                    })}
+                  </select>
+                  <ChevronDown size={12} className="mx-select-icon" />
+                </div>
+              </div>
+            )
+          })()}
           <span className="mx-period">{periodLabel}</span>
           {myRegion === null ? (
             <div className="mx-region-tabs">
@@ -382,7 +439,7 @@ export default function MatrixClient({
               </div>
               <div className="mx-guide-item">
                 <span className="mx-guide-num">5</span>
-                <div>Khi chọn xong, nhấn <strong>"Nộp ma trận"</strong> để xác nhận. Bạn vẫn có thể chỉnh sửa lại trước khi kỳ đánh giá bắt đầu bằng nút <strong>"Chỉnh sửa"</strong>.</div>
+                <div>Khi chọn xong, nhấn <strong>"Xác nhận ma trận"</strong> để xác nhận. Bạn vẫn có thể chỉnh sửa lại trước khi kỳ đánh giá bắt đầu bằng nút <strong>"Chỉnh sửa"</strong>.</div>
               </div>
             </div>
           )}
@@ -416,7 +473,7 @@ export default function MatrixClient({
       )}
 
       {/* ── Body ── */}
-      <div className={`mx-body${(canManageAll || (role === 'department' && !!myDeptId)) ? ' mx-body--split' : ''}`}>
+      <div className={`mx-body${(canManageAll || role === 'leadership' || (role === 'department' && !!myDeptId)) ? ' mx-body--split' : ''}`}>
 
         {/* Matrix grid */}
         <div className="mx-grid-wrap">
@@ -520,6 +577,39 @@ export default function MatrixClient({
           </div>
         )}
 
+        {/* ── Assignment panel (leadership) ── */}
+        {role === 'leadership' && (
+          <div className="mx-assign-panel">
+            <div className="mx-assign-header">
+              <span className="mx-assign-title">Phân công đánh giá</span>
+              <span className="mx-assign-sub">{entries.length} lượt chọn</span>
+            </div>
+            <div className="mx-assign-list">
+              {displayDepts.map(dept => {
+                const chosen = entries.filter(e => e.evaluator_id === dept.id)
+                if (chosen.length === 0) return null
+                return (
+                  <div key={dept.id} className="mx-assign-row">
+                    <span className="mx-assign-dept">{deptLabel(dept)}</span>
+                    <span className="mx-assign-arrow">→</span>
+                    <div className="mx-assign-targets">
+                      {chosen.map(e => {
+                        const target = depts.find(d => d.id === e.target_id)
+                        return target ? (
+                          <span key={e.target_id} className="mx-assign-tag">{deptLabel(target)}</span>
+                        ) : null
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+              {displayDepts.every(d => entries.filter(e => e.evaluator_id === d.id).length === 0) && (
+                <span className="mx-assign-empty">Chưa có phân công nào</span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── Summary panel (department) ── */}
         {role === 'department' && myDeptId && (
           <div className="mx-summary-panel">
@@ -552,11 +642,11 @@ export default function MatrixClient({
             {showCommitBar && (
               <div className="mx-commit-bar">
                 <span className={`mx-commit-msg ${commitStatus === 'ok' ? 'mx-commit-msg--ok' : ''} ${commitStatus === 'err' ? 'mx-commit-msg--err' : ''}`}>
-                  {myDeptHasCommitted && !isEditing ? 'Đã nộp ma trận' : ''}
+                  {myDeptHasCommitted && !isEditing ? 'Đã xác nhận' : ''}
                   {commitStatus === 'err' ? 'Lỗi — thử lại' : ''}
                 </span>
                 <button
-                  className="mx-btn mx-btn--ghost"
+                  className={`mx-btn ${!isEditing ? 'mx-btn--edit' : 'mx-btn--ghost'}`}
                   onClick={handleEdit}
                   disabled={isEditing || isCommitting}
                 >
@@ -567,7 +657,7 @@ export default function MatrixClient({
                   onClick={handleCommit}
                   disabled={!isEditing || isCommitting}
                 >
-                  <Send size={13} /> Nộp ma trận
+                  <Send size={13} /> Xác nhận ma trận
                 </button>
               </div>
             )}
@@ -579,9 +669,9 @@ export default function MatrixClient({
       {canManageAll && (
         <div className="mx-commit-section">
           <div className="mx-commit-header">
-            <span className="mx-commit-title">Tình trạng nộp ma trận</span>
+            <span className="mx-commit-title">Tình trạng xác nhận ma trận</span>
             <span className="mx-commit-sub">
-              {displayDepts.filter(d => committedSet.has(d.id)).length}/{displayDepts.length} phòng đã nộp
+              {displayDepts.filter(d => committedSet.has(d.id)).length}/{displayDepts.length} phòng đã xác nhận
             </span>
           </div>
           <div className="mx-commit-table-wrap">
@@ -611,11 +701,11 @@ export default function MatrixClient({
                       <td className="mx-ctd mx-ctd--center">
                         {committed ? (
                           <span className="mx-commit-badge mx-commit-badge--done">
-                            <Check size={10} /> Đã nộp
+                            <Check size={10} /> Đã xác nhận
                           </span>
                         ) : (
                           <span className="mx-commit-badge mx-commit-badge--pending">
-                            Chưa nộp
+                            Chưa xác nhận
                           </span>
                         )}
                       </td>
@@ -686,8 +776,27 @@ export default function MatrixClient({
           animation: mxFadeUp 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
         }
         @keyframes mxFadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-        .mx-header-left { display: flex; align-items: center; gap: 12px; }
+        .mx-header-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         .mx-period { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.4); }
+        .mx-yq-wrap { display: flex; align-items: center; gap: 6px; opacity: 1; transition: opacity 0.15s; }
+        .mx-yq-wrap--loading { opacity: 0.5; pointer-events: none; }
+        .mx-select-wrap { position: relative; display: flex; align-items: center; }
+        .mx-select {
+          appearance: none; -webkit-appearance: none;
+          background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px; padding: 5px 28px 5px 11px;
+          font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+          color: rgba(255,255,255,0.6); cursor: pointer; outline: none; transition: border-color 0.15s;
+          font-family: var(--font-sans), sans-serif;
+        }
+        .mx-select:hover { border-color: rgba(255,255,255,0.2); }
+        .mx-select:focus { border-color: rgba(179,0,0,0.5); }
+        .mx-select option { background: #1a1a1a; font-weight: normal; }
+        .mx-select:disabled { opacity: 0.5; cursor: not-allowed; }
+        .mx-select-icon { position: absolute; right: 8px; pointer-events: none; color: rgba(255,255,255,0.3); }
+        [data-theme="light"] .mx-select { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .mx-select option { background: #fff; }
+        [data-theme="light"] .mx-select-icon { color: rgba(0,0,0,0.3); }
         .mx-stat { font-size: 12px; color: rgba(179,0,0,0.8); background: rgba(179,0,0,0.08); border: 1px solid rgba(179,0,0,0.18); padding: 2px 10px; border-radius: 20px; }
         .mx-region-tabs { display: flex; align-items: center; gap: 2px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 3px; }
         .mx-region-tab {
@@ -720,6 +829,8 @@ export default function MatrixClient({
         .mx-btn--danger:hover:not(:disabled) { background: rgba(255,50,50,0.22); }
         .mx-btn--locked { background: rgba(251,191,36,0.12); color: rgba(251,191,36,0.9); border: 1px solid rgba(251,191,36,0.25); }
         .mx-btn--locked:hover:not(:disabled) { background: rgba(251,191,36,0.2); }
+        .mx-btn--edit { background: rgba(14,165,233,0.12); color: rgba(125,211,252,0.95); border: 1px solid rgba(14,165,233,0.28); }
+        .mx-btn--edit:hover:not(:disabled) { background: rgba(14,165,233,0.2); color: #7dd3fc; }
         .mx-btn--commit {
           background: #B30000; color: #fff;
           box-shadow: 0 3px 12px rgba(179,0,0,0.3);
@@ -993,6 +1104,24 @@ export default function MatrixClient({
           margin-top: 1px; font-family: monospace;
         }
 
+        /* Assignment panel (leadership) */
+        .mx-assign-panel {
+          flex: 1; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+          border-radius: 12px; padding: 20px 24px;
+          display: flex; flex-direction: column; gap: 16px;
+          animation: mxFadeUp 0.45s 0.12s both; min-width: 0; overflow-y: auto; max-height: 480px;
+        }
+        .mx-assign-header { display: flex; align-items: baseline; justify-content: space-between; flex-shrink: 0; }
+        .mx-assign-title { font-size: 12px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: rgba(255,255,255,0.4); font-family: monospace; }
+        .mx-assign-sub { font-size: 11px; color: rgba(179,0,0,0.7); font-family: monospace; font-weight: 600; }
+        .mx-assign-list { display: flex; flex-direction: column; gap: 10px; }
+        .mx-assign-row { display: flex; align-items: flex-start; gap: 8px; }
+        .mx-assign-dept { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.7); white-space: nowrap; font-family: monospace; flex-shrink: 0; padding-top: 2px; }
+        .mx-assign-arrow { font-size: 12px; color: rgba(179,0,0,0.5); flex-shrink: 0; padding-top: 2px; }
+        .mx-assign-targets { display: flex; flex-wrap: wrap; gap: 4px; }
+        .mx-assign-tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 500; background: rgba(179,0,0,0.1); color: rgba(255,130,130,0.85); border: 1px solid rgba(179,0,0,0.2); }
+        .mx-assign-empty { font-size: 12px; color: rgba(255,255,255,0.2); font-style: italic; }
+
         /* ── Light mode ── */
         [data-theme="light"] .mx-period { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .mx-region-tabs { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); }
@@ -1036,6 +1165,8 @@ export default function MatrixClient({
         [data-theme="light"] .mx-tag-empty { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .mx-tag--required { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .mx-btn--locked { background: rgba(180,130,0,0.08); color: #a07800; border-color: rgba(180,130,0,0.2); }
+        [data-theme="light"] .mx-btn--edit { background: rgba(3,105,161,0.08); color: #0369a1; border-color: rgba(3,105,161,0.2); }
+        [data-theme="light"] .mx-btn--edit:hover:not(:disabled) { background: rgba(3,105,161,0.14); }
         [data-theme="light"] .mx-locked-banner { background: rgba(180,130,0,0.06); border-color: rgba(180,130,0,0.18); color: rgba(140,90,0,0.9); }
         [data-theme="light"] .mx-locked-icon { color: rgba(140,90,0,0.6); }
         [data-theme="light"] .mx-empty { color: rgba(0,0,0,0.3); }
@@ -1070,6 +1201,12 @@ export default function MatrixClient({
         [data-theme="light"] .mx-guide-item { color: rgba(0,0,0,0.5); }
         [data-theme="light"] .mx-guide-item strong { color: rgba(0,0,0,0.75); }
         [data-theme="light"] .mx-guide-num { background: rgba(179,0,0,0.08); border-color: rgba(179,0,0,0.18); }
+        [data-theme="light"] .mx-assign-panel { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .mx-assign-title { color: rgba(0,0,0,0.45); }
+        [data-theme="light"] .mx-assign-dept { color: rgba(0,0,0,0.7); }
+        [data-theme="light"] .mx-assign-arrow { color: rgba(179,0,0,0.45); }
+        [data-theme="light"] .mx-assign-tag { background: rgba(179,0,0,0.08); color: #B30000; border-color: rgba(179,0,0,0.18); }
+        [data-theme="light"] .mx-assign-empty { color: rgba(0,0,0,0.3); }
       `}</style>
     </div>
   )

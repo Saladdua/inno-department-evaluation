@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* Muted status messages shown on evaluate/other server pages */
+.period-status-msg {
+  color: rgba(255,255,255,0.35);
+  font-style: italic;
+  font-size: 13px;
+  padding: 48px 0;
+}
+[data-theme="light"] .period-status-msg {
+  color: rgba(0,0,0,0.5);
+}
+
 /* ─── Design tokens (dark defaults) ─────────────────────── */
 :root {
   --red-900: #5c0000;

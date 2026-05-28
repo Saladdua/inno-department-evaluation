@@ -92,8 +92,8 @@ function parseCriteriaCSV(text: string, quarter: number): ParsedRow[] {
 }
 
 const STATUS_LABEL: Record<Period['status'], string> = {
-  draft:  'Chưa bắt đầu',
-  open:   'Đang diễn ra',
+  draft:  'Sắp diễn ra',
+  open:   'Đang tiến hành',
   closed: 'Đã kết thúc',
 }
 const STATUS_COLOR: Record<Period['status'], string> = {
@@ -171,8 +171,8 @@ function PeriodBanner({
               <label className="bf-label">Tình trạng</label>
               <select className="bf-input bf-select" value={draft.status}
                 onChange={e => setDraft({ ...draft, status: e.target.value as Period['status'] })}>
-                <option value="draft">Chưa bắt đầu</option>
-                <option value="open">Đang diễn ra</option>
+                <option value="draft">Sắp diễn ra</option>
+                <option value="open">Đang tiến hành</option>
                 <option value="closed">Đã kết thúc</option>
               </select>
             </div>
@@ -371,13 +371,13 @@ function CriteriaTable({
                   </td>
                   <td className="ct-td ct-td--notes">
                     {editingId === c.id ? (
-                      <input
+                      <textarea
                         className="ct-edit-input ct-edit-input--notes"
                         value={draftNotes}
                         onChange={e => setDraftNotes(e.target.value)}
                         placeholder="Ghi chú..."
+                        rows={3}
                         onKeyDown={e => {
-                          if (e.key === 'Enter') saveEdit(c.id)
                           if (e.key === 'Escape') setEditingId(null)
                         }}
                       />
@@ -823,8 +823,8 @@ function CreatePeriodModal({
             <label className="mf-label">Tình trạng ban đầu</label>
             <select className="mf-input" value={form.status}
               onChange={e => setForm({ ...form, status: e.target.value as Period['status'] })}>
-              <option value="draft">Chưa bắt đầu (Draft)</option>
-              <option value="open">Đang diễn ra (Open)</option>
+              <option value="draft">Sắp diễn ra</option>
+              <option value="open">Đang tiến hành</option>
             </select>
           </div>
           {periods.length > 0 && (
@@ -907,6 +907,9 @@ export default function CriteriaClient({
 
   const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
   const regionInitialized = useRef(false)
+
+  const [yearFilter, setYearFilter]       = useState<number>(initialPeriod?.year ?? new Date().getFullYear())
+  const [quarterFilter, setQuarterFilter] = useState<number>(initialPeriod?.quarter ?? 1)
 
   // Restore last-selected period + region when navigating back
   useEffect(() => {
@@ -998,7 +1001,22 @@ export default function CriteriaClient({
 
   function handlePeriodChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const selectedId = e.target.value
-    switchPeriod(selectedId, periods.find(p => p.id === selectedId) ?? null)
+    const p = periods.find(p => p.id === selectedId) ?? null
+    if (p) { setYearFilter(p.year); setQuarterFilter(p.quarter) }
+    switchPeriod(selectedId, p)
+  }
+
+  function handleYearFilter(year: number) {
+    setYearFilter(year)
+    const match = periods.find(p => p.year === year && p.quarter === quarterFilter)
+      ?? periods.filter(p => p.year === year).sort((a, b) => a.quarter - b.quarter)[0]
+    if (match) { setQuarterFilter(match.quarter); switchPeriod(match.id, match) }
+  }
+
+  function handleQuarterFilter(quarter: number) {
+    setQuarterFilter(quarter)
+    const match = periods.find(p => p.year === yearFilter && p.quarter === quarter)
+    if (match) switchPeriod(match.id, match)
   }
 
   function handlePeriodCreated(p: Period) {
@@ -1036,21 +1054,44 @@ export default function CriteriaClient({
 
   return (
     <div className="criteria-root">
-      {/* Period selector row — hidden for department role */}
-      {role !== 'department' && (
+      {/* Period selector row */}
+      {periods.length > 0 && (
       <div className="cp-header-row">
-        <div className="cp-selector-wrap">
-          <select className="cp-period-select" value={period?.id ?? ''} onChange={handlePeriodChange}>
-            {periods.map(p => (
-              <option key={p.id} value={p.id}>
-                Quý {p.quarter} · {p.year}
-                {p.status === 'closed' ? ' (Đã kết thúc)' : p.status === 'open' ? ' (Đang diễn ra)' : ' (Chưa bắt đầu)'}
-              </option>
-            ))}
-            {periods.length === 0 && <option value="">— Chưa có kỳ nào —</option>}
-          </select>
-          <ChevronDown size={13} className="cp-chevron" />
-        </div>
+        {/* Year / Quarter dropboxes — all roles */}
+        {(() => {
+          const availableYears = [...new Set(periods.map(p => p.year))].sort((a, b) => b - a)
+          return (
+            <div className="cp-yq-wrap">
+              <div className="cp-select-wrap">
+                <select
+                  className="cp-select"
+                  value={yearFilter}
+                  onChange={e => handleYearFilter(Number(e.target.value))}
+                >
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="cp-select-icon" />
+              </div>
+              <div className="cp-select-wrap">
+                <select
+                  className="cp-select"
+                  value={quarterFilter}
+                  onChange={e => handleQuarterFilter(Number(e.target.value))}
+                >
+                  {[1,2,3,4].map(q => {
+                    const exists = periods.some(p => p.year === yearFilter && p.quarter === q)
+                    return (
+                      <option key={q} value={q} disabled={!exists}>Quý {q}</option>
+                    )
+                  })}
+                </select>
+                <ChevronDown size={12} className="cp-select-icon" />
+              </div>
+            </div>
+          )
+        })()}
         {canEdit && (
           <div className="cp-region-tabs">
             {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
@@ -1089,7 +1130,7 @@ export default function CriteriaClient({
           </>
         )}
       </div>
-      )} {/* end role !== 'department' */}
+      )}
 
       <PeriodBanner period={period} canEdit={canEdit} onSave={handlePeriodSave} />
 
@@ -1263,8 +1304,8 @@ export default function CriteriaClient({
         }
         .ct-th--stt, .ct-th--code, .ct-th--weight, .ct-th--actions { width: 1%; }
         .ct-th--type { width: 200px; min-width: 200px; }
-        .ct-th--name { width: 200px; }
-        .ct-th--notes { min-width: 250px; }
+        .ct-th--name { width: 320px; min-width: 220px; }
+        .ct-th--notes { width: 160px; min-width: 120px; }
         .ct-td--name { white-space: normal; word-break: break-word; }
         .ct-row {
           border-top: 1px solid rgba(255,255,255,0.04);
@@ -1312,13 +1353,15 @@ export default function CriteriaClient({
         }
         .ct-edit-input--notes {
           width: 100%;
-          min-width: 120px;
+          min-width: 100px;
+          resize: vertical;
+          line-height: 1.5;
         }
         .ct-notes {
           font-size: 12px;
           color: rgba(255,255,255,0.35);
           font-style: italic;
-          white-space: normal;
+          white-space: pre-wrap;
           word-break: break-word;
         }
         .ct-td--stt { color: rgba(255,255,255,0.2); font-size: 12px; }
@@ -1502,31 +1545,25 @@ export default function CriteriaClient({
         /* ── Period selector row ── */
         .cp-header-row {
           display: flex; align-items: center; gap: 10px;
-          margin-bottom: 16px;
+          margin-bottom: 16px; flex-wrap: wrap;
         }
-        .cp-selector-wrap {
-          position: relative; display: inline-flex; align-items: center;
-        }
-        .cp-period-select {
-          appearance: none;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 8px;
-          padding: 7px 32px 7px 12px;
-          font-size: 13px;
-          color: rgba(255,255,255,0.8);
+        .cp-yq-wrap { display: flex; align-items: center; gap: 6px; }
+        .cp-select-wrap { position: relative; display: flex; align-items: center; }
+        .cp-select {
+          appearance: none; -webkit-appearance: none;
+          background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px; padding: 5px 28px 5px 11px;
+          font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+          color: rgba(255,255,255,0.6); cursor: pointer; outline: none; transition: border-color 0.15s;
           font-family: var(--font-sans), sans-serif;
-          cursor: pointer;
-          outline: none;
-          transition: border-color 0.15s, background 0.15s;
-          min-width: 220px;
         }
-        .cp-period-select:focus { border-color: rgba(179,0,0,0.4); }
-        .cp-period-select option { background: #1a1a1a; }
-        .cp-chevron {
-          position: absolute; right: 10px;
-          pointer-events: none; color: rgba(255,255,255,0.3);
-        }
+        .cp-select:hover { border-color: rgba(255,255,255,0.2); }
+        .cp-select:focus { border-color: rgba(179,0,0,0.5); }
+        .cp-select option { background: #1a1a1a; font-weight: normal; }
+        .cp-select-icon { position: absolute; right: 8px; pointer-events: none; color: rgba(255,255,255,0.3); }
+        [data-theme="light"] .cp-select { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .cp-select option { background: #fff; }
+        [data-theme="light"] .cp-select-icon { color: rgba(0,0,0,0.3); }
         .cp-new-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 7px 14px; border-radius: 8px;
@@ -1626,9 +1663,6 @@ export default function CriteriaClient({
         [data-theme="light"] .ct-type-badge--manual { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.5); }
         [data-theme="light"] .ct-type-select { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.7); }
         [data-theme="light"] .ct-type-select option { background: #fff; }
-        [data-theme="light"] .cp-period-select { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.75); }
-        [data-theme="light"] .cp-period-select option { background: #fff; }
-        [data-theme="light"] .cp-chevron { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .cp-new-btn { background: rgba(179,0,0,0.07); border-color: rgba(179,0,0,0.2); color: rgba(160,0,0,0.85); }
 
         /* ── Region tabs (criteria page) ── */

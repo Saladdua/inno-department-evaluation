@@ -29,7 +29,7 @@ const NAV = [
   { href: '/dashboard/evaluate',       label: 'Đánh giá',           icon: ClipboardPen,       roles: ['super_admin','leadership','department'] },
   { href: '/dashboard/status',         label: 'Tình trạng',         icon: Activity,           roles: ['super_admin','leadership','department'] },
   { href: '/dashboard/results',        label: 'Dashboard',          icon: BarChart2,          roles: ['super_admin','leadership','department'] },
-  { href: '/dashboard/results/detail', label: 'Kết quả chi tiết',   icon: FileBarChart,       roles: ['super_admin','leadership'] },
+  { href: '/dashboard/results/detail', label: 'Kết quả chi tiết',   icon: FileBarChart,       roles: ['super_admin'] },
   { href: '/dashboard/departments',    label: 'Phòng ban',          icon: Building2,          roles: ['super_admin'] },
   { href: '/dashboard/users',          label: 'Tài khoản',          icon: Users,              roles: ['super_admin'] },
   { href: '/dashboard/reports',        label: 'Báo cáo',            icon: Flag,               roles: ['super_admin'] },

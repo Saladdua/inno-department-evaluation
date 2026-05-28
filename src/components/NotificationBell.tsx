@@ -232,6 +232,9 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
               </div>
               <div className="nb-item-body">
                 <p className="nb-item-text">{notifTitle(n)}</p>
+                {(n.type === 'report_submitted' || n.type === 'report_request') && n.data.reason && (
+                  <span className="nb-item-reason">"{n.data.reason}"</span>
+                )}
                 <span className="nb-item-time">{timeAgo(n.created_at)}</span>
                 {href && (
                   <span className="nb-item-cta">
@@ -377,6 +380,8 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
         .nb-item-text { font-size: 12.5px; color: rgba(255,255,255,0.82); line-height: 1.4; margin: 0; font-family: var(--font-sans), sans-serif; }
         .nb-item-time { font-size: 11px; color: rgba(255,255,255,0.28); font-family: var(--font-sans), sans-serif; }
         .nb-item-cta { font-size: 11px; color: rgba(179,0,0,0.7); font-family: var(--font-sans), sans-serif; margin-top: 1px; }
+        .nb-item-reason { font-size: 11px; color: rgba(255,190,60,0.85); font-style: italic; font-family: var(--font-sans), sans-serif; }
+        [data-theme="light"] .nb-item-reason { color: rgba(150,90,0,0.85); }
 
         .nb-unread-dot {
           width: 6px; height: 6px; border-radius: 50%; background: #B30000;

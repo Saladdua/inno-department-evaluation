@@ -66,14 +66,16 @@ export async function PATCH(req: Request) {
   const report_id    = nd.report_id
 
   if (action === 'accept') {
-    // Remove the evaluator's matrix choice
+    // Remove both matrix directions between the two departments
     if (evaluator_id && reporter_id && period_id) {
       await supabase
         .from('evaluation_matrix')
         .delete()
         .eq('period_id', period_id)
-        .eq('evaluator_id', evaluator_id)
-        .eq('target_id', reporter_id)
+        .or(
+          `and(evaluator_id.eq.${evaluator_id},target_id.eq.${reporter_id}),` +
+          `and(evaluator_id.eq.${reporter_id},target_id.eq.${evaluator_id})`
+        )
     }
 
     // Delete the report

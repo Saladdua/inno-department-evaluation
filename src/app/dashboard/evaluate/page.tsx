@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getSelectedPeriod } from '@/lib/selected-period'
 import EvaluateClient from './EvaluateClient'
-import type { Criterion, Department, MatrixEntry, EvaluationRow, ScoreRow } from './EvaluateClient'
+import type { Criterion, Department, MatrixEntry, EvaluationRow, ScoreRow, AutoScoreRow } from './EvaluateClient'
 
 export default async function EvaluatePage() {
   const session = await auth()
@@ -20,7 +20,7 @@ export default async function EvaluatePage() {
 
   if (!period) {
     return (
-      <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
+      <div className="period-status-msg">
         Chưa có kỳ đánh giá nào được thiết lập.
       </div>
     )
@@ -28,7 +28,7 @@ export default async function EvaluatePage() {
 
   if (period.status === 'closed') {
     return (
-      <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
+      <div className="period-status-msg">
         Kỳ đánh giá Quý {period.quarter} · {period.year} đã kết thúc. Xem kết quả tại trang Kết quả.
       </div>
     )
@@ -36,7 +36,7 @@ export default async function EvaluatePage() {
 
   if (period.status === 'draft' && role === 'department') {
     return (
-      <div style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic', fontSize: 13, padding: '48px 0' }}>
+      <div className="period-status-msg">
         Kỳ đánh giá chưa bắt đầu. Vui lòng cấu hình ma trận và chờ quản trị viên mở kỳ đánh giá.
       </div>
     )
@@ -54,7 +54,7 @@ export default async function EvaluatePage() {
 
   let criteriaBaseQ = supabase
     .from('criteria')
-    .select('id, code, name, weight, input_type, auto_source, display_order')
+    .select('id, code, name, weight, input_type, auto_source, display_order, region')
     .eq('period_id', period.id)
     .order('display_order')
   if (myRegion) criteriaBaseQ = criteriaBaseQ.eq('region', myRegion) as typeof criteriaBaseQ
@@ -125,6 +125,18 @@ export default async function EvaluatePage() {
     scores = (data ?? []) as ScoreRow[]
   }
 
+  // Fetch auto_scores for target departments
+  const allTargetIds = [...new Set(matrix.map(m => m.target_id))]
+  let autoScores: AutoScoreRow[] = []
+  if (allTargetIds.length > 0) {
+    const { data: autoData } = await supabase
+      .from('auto_scores')
+      .select('dept_id, criteria_id, raw_score')
+      .eq('period_id', period.id)
+      .in('dept_id', allTargetIds)
+    autoScores = (autoData ?? []) as AutoScoreRow[]
+  }
+
   return (
     <EvaluateClient
       periodId={period.id}
@@ -138,6 +150,8 @@ export default async function EvaluatePage() {
       role={role}
       myDeptId={myDeptId}
       isLeader={isLeader}
+      myRegion={myRegion}
+      autoScores={autoScores}
     />
   )
 }

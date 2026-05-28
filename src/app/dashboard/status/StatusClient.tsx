@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, Archive } from 'lucide-react'
+import { Lock, Archive, ChevronDown } from 'lucide-react'
+import { setSelectedPeriod } from '@/app/actions/period'
 import JSZip from 'jszip'
 import { generateHTML, generateXLS, triggerDownload } from '../results/ResultsClient'
 import type { DeptResult, CriterionInfo } from '../results/ResultsClient'
@@ -47,6 +48,34 @@ export interface PeriodOption {
   status: string
 }
 
+export interface LeaderCriterion {
+  id: string
+  code: string | null
+  name: string
+  input_type: 'manual' | 'auto'
+}
+
+export interface LeaderCriterionScore {
+  criteriaId: string
+  avgScore: number | null
+}
+
+export interface LeaderDeptResult {
+  deptId: string
+  deptName: string
+  deptCode: string | null
+  criteriaScores: LeaderCriterionScore[]
+  avgTotal: number | null
+}
+
+export interface DeptCriterionScore {
+  id: string
+  code: string | null
+  name: string
+  avgScore: number | null
+  input_type: 'manual' | 'auto'
+}
+
 interface Props {
   periodLabel: string
   periodStatus: string
@@ -61,6 +90,10 @@ interface Props {
   deptAvgScore?: number | null
   deptMaxScore?: number
   myRegion?: string | null
+  myLeaderStat?: LeaderStat | null
+  leaderResults?: LeaderDeptResult[]
+  leaderCriteria?: LeaderCriterion[]
+  deptCriteriaScores?: DeptCriterionScore[]
 }
 
 type Status = 'done' | 'in_progress' | 'not_started' | 'none'
@@ -75,7 +108,7 @@ function getStatus(s: DeptStat): Status {
 const STATUS_LABEL: Record<Status, string> = {
   done:        'Hoàn thành',
   in_progress: 'Đang làm',
-  not_started: 'Chưa bắt đầu',
+  not_started: 'Sắp diễn ra',
   none:        '—',
 }
 
@@ -228,6 +261,13 @@ function buildCriteriaCSV(data: ArchiveData): string {
   return '﻿' + lines.join('\n')
 }
 
+function getLeaderCardStatus(l: LeaderStat): Status {
+  if (l.totalTasks === 0) return 'none'
+  if (l.submittedCount === l.totalTasks) return 'done'
+  if (l.submittedCount > 0 || l.draftCount > 0) return 'in_progress'
+  return 'not_started'
+}
+
 export default function StatusClient({
   periodLabel,
   periodStatus,
@@ -242,10 +282,43 @@ export default function StatusClient({
   deptAvgScore,
   deptMaxScore = 0,
   myRegion = null,
+  myLeaderStat = null,
+  leaderResults = [],
+  leaderCriteria = [],
+  deptCriteriaScores = [],
 }: Props) {
   const router = useRouter()
   const [localStatus, setLocalStatus] = useState(periodStatus)
   const [archiveStep, setArchiveStep] = useState<string | null>(null)
+
+  const activePeriod = periods.find(p => p.id === activePeriodId) ?? periods[0]
+  const [yearFilter, setYearFilter]       = useState<number>(activePeriod?.year ?? new Date().getFullYear())
+  const [quarterFilter, setQuarterFilter] = useState<number>(activePeriod?.quarter ?? 1)
+  const [isPeriodSwitching, startPeriodSwitch] = useTransition()
+
+  useEffect(() => {
+    const p = periods.find(p => p.id === activePeriodId)
+    if (p) { setYearFilter(p.year); setQuarterFilter(p.quarter) }
+  }, [activePeriodId, periods])
+
+  function handleStatusYearFilter(year: number) {
+    setYearFilter(year)
+    const match = periods.find(p => p.year === year && p.quarter === quarterFilter)
+      ?? periods.filter(p => p.year === year).sort((a, b) => a.quarter - b.quarter)[0]
+    if (match && match.id !== activePeriodId) {
+      setQuarterFilter(match.quarter)
+      startPeriodSwitch(async () => { await setSelectedPeriod(match.id); router.refresh() })
+    }
+  }
+
+  function handleStatusQuarterFilter(quarter: number) {
+    setQuarterFilter(quarter)
+    const match = periods.find(p => p.year === yearFilter && p.quarter === quarter)
+    if (match && match.id !== activePeriodId) {
+      startPeriodSwitch(async () => { await setSelectedPeriod(match.id); router.refresh() })
+    }
+  }
+
   const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>(
     (myRegion as 'Miền Bắc' | 'Miền Nam') ?? 'Miền Bắc'
   )
@@ -357,6 +430,44 @@ export default function StatusClient({
       {/* ── Top bar ── */}
       <div className="st-topbar">
         <div className="st-topbar-left">
+          {/* Year/Quarter period filter */}
+          {periods.length > 1 && (() => {
+            const availableYears = [...new Set(periods.map(p => p.year))].sort((a, b) => b - a)
+            return (
+              <div className={`st-yq-wrap${isPeriodSwitching ? ' st-yq-wrap--loading' : ''}`}>
+                <div className="st-select-wrap">
+                  <select
+                    className="st-select"
+                    value={yearFilter}
+                    onChange={e => handleStatusYearFilter(Number(e.target.value))}
+                    disabled={isPeriodSwitching}
+                  >
+                    {availableYears.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} className="st-select-icon" />
+                </div>
+                <div className="st-select-wrap">
+                  <select
+                    className="st-select"
+                    value={quarterFilter}
+                    onChange={e => handleStatusQuarterFilter(Number(e.target.value))}
+                    disabled={isPeriodSwitching}
+                  >
+                    {[1,2,3,4].map(q => {
+                      const exists = periods.some(p => p.year === yearFilter && p.quarter === q)
+                      return (
+                        <option key={q} value={q} disabled={!exists}>Quý {q}</option>
+                      )
+                    })}
+                  </select>
+                  <ChevronDown size={12} className="st-select-icon" />
+                </div>
+              </div>
+            )
+          })()}
+
           <span className="st-period-label">{periodLabel}</span>
 
           <span className={`st-period-status ${localStatus === 'open' ? 'st-period-status--open' : localStatus === 'closed' ? 'st-period-status--closed' : ''}`}>
@@ -416,6 +527,41 @@ export default function StatusClient({
         />
       </div>
 
+      {/* ── My status (leader) ── */}
+      {canManageAll && !isSuperAdmin && myLeaderStat && (
+        <div className={`st-my-card st-my-card--${getLeaderCardStatus(myLeaderStat)}`}>
+          <div className="st-my-header">
+            <span className="st-my-title">Đánh giá của bạn</span>
+            <span className={`st-badge st-badge--${getLeaderCardStatus(myLeaderStat)}`}>
+              {STATUS_LABEL[getLeaderCardStatus(myLeaderStat)]}
+            </span>
+          </div>
+          <div className="st-my-body">
+            <div className="st-my-stat">
+              <span className="st-my-num">{myLeaderStat.submittedCount}</span>
+              <span className="st-my-den">/{myLeaderStat.totalTasks}</span>
+              <span className="st-my-lbl">đã nộp</span>
+            </div>
+            {myLeaderStat.draftCount > 0 && (
+              <div className="st-my-stat">
+                <span className="st-my-num st-my-num--draft">{myLeaderStat.draftCount}</span>
+                <span className="st-my-lbl">đang làm</span>
+              </div>
+            )}
+          </div>
+          {myLeaderStat.pendingTargetCodes.length > 0 && (
+            <div className="st-my-pending">
+              <span className="st-my-pending-label">Chờ nộp:</span>
+              <div className="st-tags">
+                {myLeaderStat.pendingTargetCodes.map(code => (
+                  <span key={code} className="st-tag">{code}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── My status (dept user) ── */}
       {!canManageAll && myStats && (
         <div className={`st-my-card st-my-card--${getStatus(myStats)}`}>
@@ -437,11 +583,6 @@ export default function StatusClient({
                 <span className="st-my-lbl">đang làm</span>
               </div>
             )}
-            <div className="st-my-stat">
-              <span className="st-my-num">{myStats.incomingDone}</span>
-              <span className="st-my-den">/{myStats.incomingTotal}</span>
-              <span className="st-my-lbl">đã được đánh giá</span>
-            </div>
           </div>
           {myStats.pendingTargetCodes.length > 0 && (
             <div className="st-my-pending">
@@ -477,6 +618,29 @@ export default function StatusClient({
         </div>
       )}
 
+      {/* ── Per-criteria scores (dept user) ── */}
+      {!canManageAll && deptCriteriaScores.length > 0 && (
+        <div className="st-dc-section">
+          <div className="st-dc-header">
+            <span className="st-dc-title">Điểm trung bình theo tiêu chí</span>
+            <span className="st-dc-sub">{deptCriteriaScores.length} tiêu chí</span>
+          </div>
+          <div className="st-dc-list">
+            {deptCriteriaScores.map(c => (
+              <div key={c.id} className="st-dc-row">
+                <div className="st-dc-info">
+                  {c.code && <span className="st-dc-code">{c.code}</span>}
+                  <span className="st-dc-name">{c.name}</span>
+                </div>
+                <span className={`st-dc-score${c.avgScore == null ? ' st-dc-score--empty' : ''}`}>
+                  {c.avgScore != null ? c.avgScore.toFixed(1) : '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Dept summary pills (admin/leadership) ── */}
       {canManageAll && (
         <div className="st-dept-pills">
@@ -497,8 +661,8 @@ export default function StatusClient({
         </div>
       )}
 
-      {/* ── Department table ── */}
-      <div className="st-table-wrap">
+      {/* ── Department table (admin/leadership only) ── */}
+      {canManageAll && <div className="st-table-wrap">
         <table className="st-table">
           <thead>
             <tr>
@@ -639,7 +803,59 @@ export default function StatusClient({
             })}
           </tbody>
         </table>
-      </div>
+      </div>}
+
+      {/* ── Leader aggregate results ── */}
+      {canManageAll && !isSuperAdmin && leaderResults.length > 0 && leaderCriteria.length > 0 && (
+        <div className="st-lr-section">
+          <div className="st-lr-header">
+            <span className="st-lr-title">Điểm trung bình theo tiêu chí</span>
+            <span className="st-lr-sub">{leaderResults.length} phòng ban · {leaderCriteria.length} tiêu chí</span>
+          </div>
+          <div className="st-lr-table-wrap">
+            <table className="st-lr-table">
+              <thead>
+                <tr>
+                  <th className="st-lr-th st-lr-th--dept">Phòng ban</th>
+                  {leaderCriteria.map(c => (
+                    <th key={c.id} className="st-lr-th st-lr-th--crit" title={c.name}>
+                      {c.code ?? c.name}
+                      {c.input_type === 'auto' && <span className="st-lr-auto">▲</span>}
+                    </th>
+                  ))}
+                  <th className="st-lr-th st-lr-th--avg">TB</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderResults.map(r => (
+                  <tr key={r.deptId} className="st-lr-tr">
+                    <td className="st-lr-td st-lr-td--dept">
+                      <span className="st-lr-dept">{r.deptCode ?? r.deptName}</span>
+                    </td>
+                    {r.criteriaScores.map(cs => (
+                      <td key={cs.criteriaId} className="st-lr-td st-lr-td--crit">
+                        {cs.avgScore != null ? (
+                          <span className="st-lr-score">{cs.avgScore.toFixed(1)}</span>
+                        ) : (
+                          <span className="st-lr-empty">—</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="st-lr-td st-lr-td--avg">
+                      {r.avgTotal != null ? (
+                        <span className="st-lr-avg-val">{r.avgTotal.toFixed(1)}</span>
+                      ) : (
+                        <span className="st-lr-empty">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="st-lr-note">▲ = điểm tự động · TB = trung bình cộng các tiêu chí</div>
+        </div>
+      )}
 
       <style>{`
         .st-root {
@@ -653,6 +869,27 @@ export default function StatusClient({
         .st-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
         .st-topbar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .st-topbar-right { display: flex; align-items: center; gap: 10px; }
+
+        /* Year/Quarter period filter */
+        .st-yq-wrap { display: flex; align-items: center; gap: 6px; opacity: 1; transition: opacity 0.15s; }
+        .st-yq-wrap--loading { opacity: 0.5; pointer-events: none; }
+        .st-select-wrap { position: relative; display: flex; align-items: center; }
+        .st-select {
+          appearance: none; -webkit-appearance: none;
+          background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px; padding: 5px 28px 5px 11px;
+          font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+          color: rgba(255,255,255,0.6); cursor: pointer; outline: none; transition: border-color 0.15s;
+          font-family: var(--font-sans), sans-serif;
+        }
+        .st-select:hover { border-color: rgba(255,255,255,0.2); }
+        .st-select:focus { border-color: rgba(179,0,0,0.5); }
+        .st-select option { background: #1a1a1a; font-weight: normal; }
+        .st-select:disabled { opacity: 0.5; cursor: not-allowed; }
+        .st-select-icon { position: absolute; right: 8px; pointer-events: none; color: rgba(255,255,255,0.3); }
+        [data-theme="light"] .st-select { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .st-select option { background: #fff; }
+        [data-theme="light"] .st-select-icon { color: rgba(0,0,0,0.3); }
 
         /* Period label (replaces selector — 1 period at a time) */
         .st-period-label {
@@ -934,6 +1171,107 @@ export default function StatusClient({
         [data-theme="light"] .st-tag--done { background: rgba(22,163,74,0.07); color: rgba(22,163,74,0.8); border-color: rgba(22,163,74,0.14); }
         [data-theme="light"] .st-tag--more { background: rgba(179,0,0,0.06); color: rgba(140,0,0,0.7); border-color: rgba(179,0,0,0.12); }
         [data-theme="light"] .st-pending-none { color: rgba(0,0,0,0.25); }
+
+        /* ── Per-criteria scores (dept) ── */
+        .st-dc-section {
+          display: flex; flex-direction: column; gap: 10px;
+          padding: 18px 20px; border-radius: 14px;
+          background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.07);
+        }
+        .st-dc-header { display: flex; align-items: center; gap: 10px; }
+        .st-dc-title {
+          font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+          text-transform: uppercase; color: rgba(255,255,255,0.5);
+        }
+        .st-dc-sub { font-size: 11px; color: rgba(255,255,255,0.2); font-style: italic; }
+        .st-dc-list { display: flex; flex-direction: column; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); }
+        .st-dc-row {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+          padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.04);
+          transition: background 0.1s;
+        }
+        .st-dc-row:last-child { border-bottom: none; }
+        .st-dc-row:hover { background: rgba(255,255,255,0.025); }
+        .st-dc-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .st-dc-code {
+          flex-shrink: 0; padding: 2px 7px; border-radius: 5px;
+          background: rgba(255,255,255,0.05); font-family: monospace;
+          font-size: 11px; color: rgba(255,255,255,0.4); letter-spacing: 0.03em;
+        }
+        .st-dc-name { font-size: 13px; color: rgba(255,255,255,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .st-dc-score {
+          flex-shrink: 0; font-size: 15px; font-weight: 700;
+          color: #B30000; min-width: 36px; text-align: right;
+        }
+        .st-dc-score--empty { color: rgba(255,255,255,0.2); font-weight: 400; font-size: 13px; }
+        [data-theme="light"] .st-dc-section { background: #fff; border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .st-dc-title { color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .st-dc-sub { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .st-dc-list { border-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .st-dc-row { border-bottom-color: rgba(0,0,0,0.05); }
+        [data-theme="light"] .st-dc-row:hover { background: rgba(0,0,0,0.02); }
+        [data-theme="light"] .st-dc-code { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.45); }
+        [data-theme="light"] .st-dc-name { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .st-dc-score--empty { color: rgba(0,0,0,0.2); }
+
+        /* ── Leader results table ── */
+        .st-lr-section {
+          display: flex; flex-direction: column; gap: 10px;
+          padding: 18px 20px; border-radius: 14px;
+          background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.07);
+        }
+        .st-lr-header { display: flex; align-items: center; gap: 10px; }
+        .st-lr-title {
+          font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+          text-transform: uppercase; color: rgba(255,255,255,0.5);
+        }
+        .st-lr-sub { font-size: 11px; color: rgba(255,255,255,0.2); font-style: italic; }
+        .st-lr-table-wrap {
+          overflow-x: auto; border-radius: 10px;
+          border: 1px solid rgba(255,255,255,0.06);
+          scrollbar-width: thin; scrollbar-color: rgba(179,0,0,0.15) transparent;
+        }
+        .st-lr-table-wrap::-webkit-scrollbar { height: 4px; }
+        .st-lr-table-wrap::-webkit-scrollbar-thumb { background: rgba(179,0,0,0.15); border-radius: 4px; }
+        .st-lr-table { border-collapse: collapse; min-width: 100%; }
+        .st-lr-th {
+          padding: 8px 12px; text-align: center;
+          font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+          color: rgba(255,255,255,0.25); border-bottom: 1px solid rgba(255,255,255,0.06);
+          white-space: nowrap; position: sticky; top: 0; background: #111; z-index: 1;
+        }
+        .st-lr-th--dept { text-align: left; min-width: 100px; position: sticky; left: 0; z-index: 2; background: #111; }
+        .st-lr-th--crit { min-width: 68px; }
+        .st-lr-th--avg { min-width: 56px; color: rgba(179,0,0,0.6); }
+        .st-lr-auto { color: rgba(251,191,36,0.55); font-size: 8px; margin-left: 3px; vertical-align: super; }
+        .st-lr-tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; }
+        .st-lr-tr:hover { background: rgba(255,255,255,0.025); }
+        .st-lr-tr:last-child { border-bottom: none; }
+        .st-lr-td { padding: 9px 12px; text-align: center; vertical-align: middle; }
+        .st-lr-td--dept { text-align: left; position: sticky; left: 0; background: #0e0e0e; z-index: 1; }
+        .st-lr-tr:hover .st-lr-td--dept { background: #141414; }
+        .st-lr-td--avg { background: rgba(179,0,0,0.04); }
+        .st-lr-dept { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.6); letter-spacing: 0.04em; }
+        .st-lr-score { font-size: 12.5px; color: rgba(255,255,255,0.65); font-weight: 500; }
+        .st-lr-avg-val { font-size: 13px; font-weight: 700; color: rgba(179,0,0,0.85); }
+        .st-lr-empty { font-size: 12px; color: rgba(255,255,255,0.15); }
+        .st-lr-note { font-size: 10px; color: rgba(255,255,255,0.18); font-style: italic; letter-spacing: 0.03em; }
+
+        [data-theme="light"] .st-lr-section { background: #fff; border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .st-lr-title { color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .st-lr-sub { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .st-lr-table-wrap { border-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .st-lr-th { background: #f5f5f5; color: rgba(0,0,0,0.4); border-bottom-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .st-lr-th--dept { background: #f5f5f5; }
+        [data-theme="light"] .st-lr-th--avg { color: rgba(179,0,0,0.6); }
+        [data-theme="light"] .st-lr-tr { border-bottom-color: rgba(0,0,0,0.05); }
+        [data-theme="light"] .st-lr-tr:hover { background: rgba(0,0,0,0.02); }
+        [data-theme="light"] .st-lr-td--dept { background: #fff; }
+        [data-theme="light"] .st-lr-tr:hover .st-lr-td--dept { background: #fafafa; }
+        [data-theme="light"] .st-lr-dept { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .st-lr-score { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .st-lr-empty { color: rgba(0,0,0,0.2); }
+        [data-theme="light"] .st-lr-note { color: rgba(0,0,0,0.25); }
       `}</style>
     </div>
   )

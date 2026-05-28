@@ -11,6 +11,13 @@ export interface Criterion {
   input_type: 'manual' | 'auto'
   auto_source: string | null
   display_order: number
+  region?: string | null
+}
+
+export interface AutoScoreRow {
+  dept_id: string
+  criteria_id: string
+  raw_score: number | null
 }
 
 export interface Department {
@@ -59,6 +66,8 @@ interface Props {
   role: Role
   myDeptId: string | null
   isLeader?: boolean
+  myRegion?: string | null
+  autoScores?: AutoScoreRow[]
 }
 
 function getDeptName(depts: Department[], id: string) {
@@ -82,14 +91,21 @@ export default function EvaluateClient({
   role,
   myDeptId,
   isLeader = false,
+  autoScores = [],
 }: Props) {
   const canManageAll = role === 'super_admin' || role === 'leadership'
 
-  // All criteria are shown to everyone. scoreableCriteria determines which ones accept score input.
-  const displayCriteria = criteria
+  const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
+
+  const filteredCriteria = useMemo(() => {
+    if (role !== 'super_admin') return criteria
+    return criteria.filter(c => (c.region ?? 'Miền Bắc') === regionFilter)
+  }, [criteria, regionFilter, role])
+
+  const displayCriteria = filteredCriteria
   const scoreableCriteria = role === 'super_admin'
-    ? criteria
-    : criteria.filter(c => c.input_type !== 'auto' && (isLeader || c.auto_source !== 'leader'))
+    ? filteredCriteria
+    : filteredCriteria.filter(c => c.input_type !== 'auto' && (isLeader || c.auto_source !== 'leader'))
 
   function canScoreCriterion(c: Criterion): boolean {
     return scoreableCriteria.some(s => s.id === c.id)
@@ -99,9 +115,32 @@ export default function EvaluateClient({
     return [...new Set(matrix.map(e => e.evaluator_id))]
   }, [matrix])
 
-  const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>(
-    canManageAll ? (evaluatorIds[0] ?? '') : (myDeptId ?? '')
-  )
+  const filteredEvaluatorIds = useMemo(() => {
+    if (role !== 'super_admin') return evaluatorIds
+    return evaluatorIds.filter(id => {
+      const dept = depts.find(d => d.id === id)
+      return (dept?.region ?? 'Miền Bắc') === regionFilter
+    })
+  }, [evaluatorIds, regionFilter, role, depts])
+
+  const autoScoreMap = useMemo(() => {
+    const map: Record<string, number> = {}
+    autoScores.forEach(s => {
+      if (s.raw_score != null) map[`${s.dept_id}:${s.criteria_id}`] = s.raw_score
+    })
+    return map
+  }, [autoScores])
+
+  const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>(() => {
+    if (canManageAll && role === 'super_admin') {
+      const northFirst = evaluatorIds.find(id => {
+        const d = depts.find(dd => dd.id === id)
+        return (d?.region ?? 'Miền Bắc') === 'Miền Bắc'
+      })
+      return northFirst ?? evaluatorIds[0] ?? ''
+    }
+    return canManageAll ? (evaluatorIds[0] ?? '') : (myDeptId ?? '')
+  })
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [evaluations, setEvaluations] = useState<EvaluationRow[]>(initialEvaluations)
   const [scoresMap, setScoresMap] = useState<Record<string, ScoreRow[]>>(() => {
@@ -133,6 +172,18 @@ export default function EvaluateClient({
     [matrix, selectedEvaluatorId]
   )
 
+  function handleRegionChange(r: 'Miền Bắc' | 'Miền Nam') {
+    const newFirst = evaluatorIds.find(id => {
+      const dept = depts.find(d => d.id === id)
+      return (dept?.region ?? 'Miền Bắc') === r
+    }) ?? ''
+    setRegionFilter(r)
+    setSelectedEvaluatorId(newFirst)
+    setSelectedTargetId(null)
+    setDraftScores({})
+    setSaveStatus('idle')
+  }
+
   function buildDraftFromEval(evaluatorId: string, targetId: string): Record<string, DraftScore> {
     const draft: Record<string, DraftScore> = {}
     displayCriteria.forEach(c => { draft[c.id] = { raw_score: '', note: '' } })
@@ -146,6 +197,15 @@ export default function EvaluateClient({
         }
       })
     }
+    // Auto criteria always show the pre-calculated value from auto_scores
+    displayCriteria.forEach(c => {
+      if (c.input_type === 'auto') {
+        const autoScore = autoScoreMap[`${targetId}:${c.id}`]
+        if (autoScore != null) {
+          draft[c.id] = { raw_score: String(autoScore), note: draft[c.id]?.note ?? '' }
+        }
+      }
+    })
     return draft
   }
 
@@ -306,6 +366,20 @@ export default function EvaluateClient({
       <div className="ev-left">
         <div className="ev-period">{periodLabel}</div>
 
+        {role === 'super_admin' && (
+          <div className="ev-region-tabs">
+            {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
+              <button
+                key={r}
+                className={`ev-region-tab ${regionFilter === r ? 'ev-region-tab--active' : ''}`}
+                onClick={() => handleRegionChange(r)}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
+
         {isLeader && (
           <div className="ev-field">
             <span className="ev-field-label">Đánh giá với tư cách</span>
@@ -313,7 +387,7 @@ export default function EvaluateClient({
           </div>
         )}
 
-        {canManageAll && !isLeader && evaluatorIds.length > 0 && (
+        {canManageAll && !isLeader && filteredEvaluatorIds.length > 0 && (
           <div className="ev-field">
             <span className="ev-field-label">Phòng ban đánh giá</span>
             <select
@@ -326,7 +400,7 @@ export default function EvaluateClient({
                 setSaveStatus('idle')
               }}
             >
-              {evaluatorIds.map(id => (
+              {filteredEvaluatorIds.map(id => (
                 <option key={id} value={id}>{getDeptName(depts, id)}</option>
               ))}
             </select>
@@ -543,6 +617,21 @@ export default function EvaluateClient({
           border-radius: 14px;
           overflow: hidden;
         }
+
+        /* ── Region tabs (admin) ── */
+        .ev-region-tabs { display: flex; gap: 3px; padding: 10px 12px 4px; }
+        .ev-region-tab {
+          flex: 1; padding: 5px 0; border-radius: 7px;
+          border: 1px solid rgba(255,255,255,0.1); background: transparent;
+          color: rgba(255,255,255,0.35); font-size: 11px; font-weight: 600;
+          letter-spacing: 0.04em; font-family: var(--font-sans), sans-serif;
+          cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
+        }
+        .ev-region-tab:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.15); }
+        .ev-region-tab--active { background: rgba(179,0,0,0.15); color: rgba(255,180,180,0.95); border-color: rgba(179,0,0,0.3); }
+        [data-theme="light"] .ev-region-tab { color: rgba(0,0,0,0.4); border-color: rgba(0,0,0,0.1); background: transparent; }
+        [data-theme="light"] .ev-region-tab:hover { color: rgba(0,0,0,0.65); background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.18); }
+        [data-theme="light"] .ev-region-tab--active { background: rgba(179,0,0,0.1); color: #B30000; border-color: rgba(179,0,0,0.25); }
 
         .ev-period {
           padding: 14px 16px 10px;
