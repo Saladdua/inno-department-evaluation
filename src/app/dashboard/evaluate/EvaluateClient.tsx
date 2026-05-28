@@ -515,7 +515,7 @@ export default function EvaluateClient({
                         <td className="ev-td td-name">
                           {c.name}
                           {isAuto && <span className="ev-auto-badge">Tự động</span>}
-                          {!scoreable && !isAuto && <span className="ev-na-badge">Không đánh giá</span>}
+                          {!scoreable && !isAuto && <span className="ev-na-badge">Ban lãnh đạo đánh giá</span>}
                         </td>
                         <td className="ev-td td-score" style={{ position: 'relative' }}>
                           {scoreable ? (
@@ -910,6 +910,10 @@ export default function EvaluateClient({
           background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.35);
           border: 1px solid rgba(255,255,255,0.1); letter-spacing: 0.04em;
           vertical-align: middle;
+        }
+        [data-theme="light"] .ev-na-badge {
+          background: rgba(99,102,241,0.08); color: rgba(79,70,229,0.75);
+          border-color: rgba(99,102,241,0.2);
         }
         .ev-auto-badge {
           display: inline-flex; align-items: center;
