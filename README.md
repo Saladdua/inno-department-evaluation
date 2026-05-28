@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/banner.png" alt="INNO Department Evaluation" width="100%" />
+  <img src="./src/docs/banner.png" alt="INNO Department Evaluation" width="100%" />
 </p>
 
 <h1 align="center">INNO Department Evaluation</h1>
