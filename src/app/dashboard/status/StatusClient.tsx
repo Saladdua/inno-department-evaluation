@@ -53,6 +53,7 @@ export interface LeaderCriterion {
   code: string | null
   name: string
   input_type: 'manual' | 'auto'
+  region: string
 }
 
 export interface LeaderCriterionScore {
@@ -66,6 +67,7 @@ export interface LeaderDeptResult {
   deptCode: string | null
   criteriaScores: LeaderCriterionScore[]
   avgTotal: number | null
+  region: string
 }
 
 export interface DeptCriterionScore {
@@ -350,6 +352,15 @@ export default function StatusClient({
 
   const activeRegion = canManageAll ? regionFilter : (myStats?.region ?? 'Miền Bắc')
   const displayLeaders = leaders.filter(l => l.region === activeRegion)
+
+  const displayLeaderResults = useMemo(
+    () => leaderResults.filter(r => r.region === regionFilter),
+    [leaderResults, regionFilter]
+  )
+  const displayLeaderCriteria = useMemo(
+    () => leaderCriteria.filter(c => c.region === regionFilter),
+    [leaderCriteria, regionFilter]
+  )
 
   const isOverdue = localStatus === 'open' && endDate && new Date(endDate) < new Date()
 
@@ -806,18 +817,18 @@ export default function StatusClient({
       </div>}
 
       {/* ── Leader aggregate results ── */}
-      {canManageAll && !isSuperAdmin && leaderResults.length > 0 && leaderCriteria.length > 0 && (
+      {canManageAll && !isSuperAdmin && displayLeaderResults.length > 0 && displayLeaderCriteria.length > 0 && (
         <div className="st-lr-section">
           <div className="st-lr-header">
             <span className="st-lr-title">Điểm trung bình theo tiêu chí</span>
-            <span className="st-lr-sub">{leaderResults.length} phòng ban · {leaderCriteria.length} tiêu chí</span>
+            <span className="st-lr-sub">{displayLeaderResults.length} phòng ban · {displayLeaderCriteria.length} tiêu chí</span>
           </div>
           <div className="st-lr-table-wrap">
             <table className="st-lr-table">
               <thead>
                 <tr>
                   <th className="st-lr-th st-lr-th--dept">Phòng ban</th>
-                  {leaderCriteria.map(c => (
+                  {displayLeaderCriteria.map(c => (
                     <th key={c.id} className="st-lr-th st-lr-th--crit" title={c.name}>
                       {c.code ?? c.name}
                       {c.input_type === 'auto' && <span className="st-lr-auto">▲</span>}
@@ -827,7 +838,7 @@ export default function StatusClient({
                 </tr>
               </thead>
               <tbody>
-                {leaderResults.map(r => (
+                {displayLeaderResults.map(r => (
                   <tr key={r.deptId} className="st-lr-tr">
                     <td className="st-lr-td st-lr-td--dept">
                       <span className="st-lr-dept">{r.deptCode ?? r.deptName}</span>

@@ -319,6 +319,7 @@ export default async function ResultsPage({
       maxScore={maxScore}
       totalSubmitted={totalSubmitted}
       canManageAll={canManageAll}
+      isSuperAdmin={role === 'super_admin'}
       myRegion={myRegion}
       periodId={activePeriodId}
       initialOverrides={initialOverrides}

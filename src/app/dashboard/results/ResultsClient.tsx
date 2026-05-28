@@ -50,6 +50,7 @@ interface Props {
   maxScore: number;
   totalSubmitted: number;
   canManageAll: boolean;
+  isSuperAdmin: boolean;
   myRegion?: string | null;
   periodId: string | null;
   initialOverrides: Record<string, Record<string, number>>;
@@ -552,6 +553,7 @@ export default function ResultsClient({
   maxScore,
   totalSubmitted,
   canManageAll,
+  isSuperAdmin,
   myRegion = null,
   periodId,
   initialOverrides,
@@ -880,7 +882,7 @@ export default function ResultsClient({
             )}
           </div>
           <div className="rs-header-right">
-            {canManageAll && periodId !== null && (
+            {canManageAll && isSuperAdmin && periodId !== null && (
               <button
                 className="rs-dl-btn rs-import-btn"
                 onClick={openImportModal}
