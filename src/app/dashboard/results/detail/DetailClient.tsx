@@ -16,6 +16,7 @@ export interface CriterionInfo {
   name: string
   weight: number
   region?: string | null
+  input_type?: 'manual' | 'auto'
 }
 
 export interface ScoreEntry {
@@ -38,6 +39,7 @@ export interface TargetData {
   targetCode: string | null
   region?: string | null
   evaluators: EvaluatorEntry[]
+  autoScores?: { criteriaId: string; rawScore: number | null }[]
 }
 
 interface Props {
@@ -128,6 +130,10 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
   const criteriaAvgs = useMemo(() => {
     if (!target) return []
     return displayCriteria.map(c => {
+      if (c.input_type === 'auto') {
+        const autoRaw = target.autoScores?.find(s => s.criteriaId === c.id)?.rawScore ?? null
+        return { criteriaId: c.id, avgRaw: autoRaw, avgWeighted: autoRaw != null ? autoRaw * c.weight : null }
+      }
       const rawVals = target.evaluators.map(e => e.scores.find(s => s.criteriaId === c.id)?.rawScore ?? null)
       const wVals   = target.evaluators.map(e => e.scores.find(s => s.criteriaId === c.id)?.weightedScore ?? null)
       return { criteriaId: c.id, avgRaw: avg(rawVals), avgWeighted: avg(wVals) }
@@ -236,6 +242,57 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
             </div>
           ) : (
             <>
+              {/* ── Per-criteria average summary ── */}
+              {canManageAll && criteriaAvgs.length > 0 && (
+                <div className="dt-avg-table-wrap">
+                  <table className="dt-avg-table">
+                    <thead>
+                      <tr>
+                        <th className="dt-avg-th dt-avg-th--left">Tiêu chí</th>
+                        <th className="dt-avg-th">Loại</th>
+                        <th className="dt-avg-th dt-avg-th--right">Điểm TB</th>
+                        <th className="dt-avg-th dt-avg-th--right">×Trọng số</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayCriteria.map(c => {
+                        const ca = criteriaAvgs.find(a => a.criteriaId === c.id)
+                        const isAuto = c.input_type === 'auto'
+                        return (
+                          <tr key={c.id} className="dt-avg-tr">
+                            <td className="dt-avg-td dt-avg-td--left">
+                              <div className="dt-avg-crit-cell">
+                                {c.code && <span className="dt-avg-code">{c.code}</span>}
+                                <span className="dt-avg-name">{c.name}</span>
+                              </div>
+                            </td>
+                            <td className="dt-avg-td">
+                              <span className={`dt-avg-type-badge${isAuto ? ' dt-avg-type-badge--auto' : ''}`}>
+                                {isAuto ? 'Tự động' : 'Thủ công'}
+                              </span>
+                            </td>
+                            <td className="dt-avg-td dt-avg-td--right dt-avg-score">
+                              {ca?.avgRaw != null ? ca.avgRaw.toFixed(1) : '—'}
+                            </td>
+                            <td className="dt-avg-td dt-avg-td--right dt-avg-weighted">
+                              {ca?.avgWeighted != null ? ca.avgWeighted.toFixed(2) : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="dt-avg-total-row">
+                        <td className="dt-avg-td dt-avg-td--left dt-avg-total-label" colSpan={2}>Tổng điểm trung bình</td>
+                        <td className="dt-avg-td dt-avg-td--right dt-avg-total-score" colSpan={2}>
+                          {fmt(overallAvg, 1)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
               {/* ── Evaluator × Criteria matrix table ── */}
               <div className="dt-matrix-wrap">
                 <table className="dt-matrix">
@@ -450,6 +507,64 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
         .dt-avg-val { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); }
         .dt-avg-total { padding: 8px 12px; text-align: center; border-left: 1px solid rgba(255,255,255,0.05); }
         .dt-avg-total-val { font-size: 14px; font-weight: 700; color: #B30000; }
+
+        /* ── Per-criteria avg table ── */
+        .dt-avg-table-wrap {
+          border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; overflow: hidden;
+        }
+        .dt-avg-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        .dt-avg-th {
+          padding: 8px 14px; font-size: 10px; font-weight: 700; letter-spacing: 0.09em;
+          text-transform: uppercase; color: rgba(255,255,255,0.28);
+          background: rgba(255,255,255,0.025); border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .dt-avg-th--left { text-align: left; }
+        .dt-avg-th--right { text-align: right; }
+        .dt-avg-tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; }
+        .dt-avg-tr:last-child { border-bottom: none; }
+        .dt-avg-tr:hover { background: rgba(255,255,255,0.02); }
+        .dt-avg-td { padding: 9px 14px; vertical-align: middle; text-align: center; color: rgba(255,255,255,0.65); }
+        .dt-avg-td--left { text-align: left; }
+        .dt-avg-td--right { text-align: right; }
+        .dt-avg-crit-cell { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+        .dt-avg-code {
+          font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+          color: rgba(255,255,255,0.45); background: rgba(255,255,255,0.05);
+          padding: 1px 6px; border-radius: 4px; flex-shrink: 0;
+        }
+        .dt-avg-name { color: rgba(255,255,255,0.7); font-size: 12.5px; }
+        .dt-avg-type-badge {
+          display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+          padding: 2px 7px; border-radius: 20px; white-space: nowrap;
+          background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.38);
+          border: 1px solid rgba(255,255,255,0.09);
+        }
+        .dt-avg-type-badge--auto {
+          background: rgba(99,102,241,0.13); color: rgba(165,163,255,0.9);
+          border-color: rgba(99,102,241,0.2);
+        }
+        .dt-avg-score { font-size: 16px; font-weight: 700; color: rgba(255,255,255,0.82); letter-spacing: 0.01em; }
+        .dt-avg-weighted { font-size: 12px; color: rgba(255,255,255,0.38); font-variant-numeric: tabular-nums; }
+        .dt-avg-total-row { border-top: 1px solid rgba(255,255,255,0.09); background: rgba(179,0,0,0.06); }
+        .dt-avg-total-label {
+          font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+          color: rgba(255,255,255,0.3); padding: 9px 14px;
+        }
+        .dt-avg-total-score { font-size: 18px; font-weight: 700; color: #B30000; padding: 9px 14px; }
+
+        [data-theme="light"] .dt-avg-table-wrap { border-color: rgba(0,0,0,0.09); }
+        [data-theme="light"] .dt-avg-th { background: rgba(0,0,0,0.025); color: rgba(0,0,0,0.35); border-bottom-color: rgba(0,0,0,0.07); }
+        [data-theme="light"] .dt-avg-tr { border-bottom-color: rgba(0,0,0,0.05); }
+        [data-theme="light"] .dt-avg-tr:hover { background: rgba(0,0,0,0.02); }
+        [data-theme="light"] .dt-avg-td { color: rgba(0,0,0,0.7); }
+        [data-theme="light"] .dt-avg-code { color: rgba(0,0,0,0.4); background: rgba(0,0,0,0.05); }
+        [data-theme="light"] .dt-avg-name { color: rgba(0,0,0,0.72); }
+        [data-theme="light"] .dt-avg-type-badge { background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.38); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .dt-avg-type-badge--auto { background: rgba(99,102,241,0.07); color: rgba(79,70,229,0.85); border-color: rgba(99,102,241,0.18); }
+        [data-theme="light"] .dt-avg-score { color: rgba(0,0,0,0.82); }
+        [data-theme="light"] .dt-avg-weighted { color: rgba(0,0,0,0.38); }
+        [data-theme="light"] .dt-avg-total-row { background: rgba(179,0,0,0.04); border-top-color: rgba(0,0,0,0.09); }
+        [data-theme="light"] .dt-avg-total-label { color: rgba(0,0,0,0.35); }
 
         /* ── Light mode ───────────────────────────────── */
         [data-theme="light"] .dt-empty { color: rgba(0,0,0,0.3); }

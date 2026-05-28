@@ -63,19 +63,28 @@ export default async function ResultsDetailPage({
 
   let myRegion: string | null = null
 
-  const [criteriaResult, deptsResult, evalsResult] = await Promise.all([
-    supabase.from('criteria').select('id, code, name, weight, region').eq('period_id', period.id).order('display_order'),
+  const [criteriaResult, deptsResult, evalsResult, autoScoresResult] = await Promise.all([
+    supabase.from('criteria').select('id, code, name, weight, region, input_type').eq('period_id', period.id).order('display_order'),
     supabase.from('departments').select('id, name, code, region').order('name'),
     supabase
       .from('evaluations')
       .select('id, evaluator_id, target_id, total_score')
       .eq('period_id', period.id)
       .eq('status', 'submitted'),
+    supabase.from('auto_scores').select('dept_id, criteria_id, raw_score').eq('period_id', period.id),
   ])
 
   const criteria: CriterionInfo[] = (criteriaResult.data ?? []).map(c => ({
     id: c.id, code: c.code, name: c.name, weight: Number(c.weight), region: c.region ?? null,
+    input_type: (c.input_type as 'manual' | 'auto') ?? 'manual',
   }))
+
+  // Build auto score map: dept_id → criteria_id → raw_score
+  const autoScoreMap = new Map<string, { criteriaId: string; rawScore: number | null }[]>()
+  for (const row of autoScoresResult.data ?? []) {
+    if (!autoScoreMap.has(row.dept_id)) autoScoreMap.set(row.dept_id, [])
+    autoScoreMap.get(row.dept_id)!.push({ criteriaId: row.criteria_id, rawScore: row.raw_score })
+  }
   const depts = deptsResult.data ?? []
 
   // Derive department user's region from their dept record
@@ -130,6 +139,7 @@ export default async function ResultsDetailPage({
       evaluators: (targetMap.get(d.id) ?? []).sort((a, b) =>
         (a.evaluatorName ?? '').localeCompare(b.evaluatorName ?? '')
       ),
+      autoScores: autoScoreMap.get(d.id) ?? [],
     }))
 
   return (
