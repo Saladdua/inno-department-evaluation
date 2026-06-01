@@ -1603,6 +1603,7 @@ export default function CriteriaClient({
         .cp-select-icon { position: absolute; right: 8px; pointer-events: none; color: rgba(255,255,255,0.3); }
         [data-theme="light"] .cp-select { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.12); color: rgba(0,0,0,0.65); }
         [data-theme="light"] .cp-select option { background: #fff; }
+        [data-theme="light"] .cp-select option:disabled { color: rgba(0,0,0,0.2); }
         [data-theme="light"] .cp-select-icon { color: rgba(0,0,0,0.3); }
         .cp-new-btn {
           display: inline-flex; align-items: center; gap: 6px;
