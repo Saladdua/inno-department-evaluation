@@ -224,16 +224,19 @@ function CriteriaTable({
   criteria,
   canEdit,
   onUpdateCriterion,
+  onDeleteCriterion,
   onAddRow,
   onImportCsv,
 }: {
   criteria: Criterion[]
   canEdit: boolean
   onUpdateCriterion: (id: string, fields: { code: string | null; name: string; notes: string | null; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) => Promise<void>
+  onDeleteCriterion: (id: string) => Promise<void>
   onAddRow: () => void
   onImportCsv?: () => void
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [draftCode, setDraftCode] = useState('')
   const [draftName, setDraftName] = useState('')
   const [draftNotes, setDraftNotes] = useState('')
@@ -461,10 +464,34 @@ function CriteriaTable({
                             <X size={12} />
                           </button>
                         </div>
+                      ) : deletingId === c.id ? (
+                        <div className="ct-row-actions ct-row-actions--confirm">
+                          <span className="ct-del-warn">Xoá?</span>
+                          <button
+                            className="ct-icon-btn ct-icon-btn--del-yes"
+                            disabled={isPending}
+                            onClick={() => {
+                              startTransition(async () => {
+                                await onDeleteCriterion(c.id)
+                                setDeletingId(null)
+                              })
+                            }}
+                          >
+                            <Check size={12} />
+                          </button>
+                          <button className="ct-icon-btn ct-icon-btn--cancel" onClick={() => setDeletingId(null)}>
+                            <X size={12} />
+                          </button>
+                        </div>
                       ) : (
-                        <button className="ct-icon-btn ct-icon-btn--edit" onClick={() => startEdit(c)}>
-                          <Pencil size={12} />
-                        </button>
+                        <div className="ct-row-actions">
+                          <button className="ct-icon-btn ct-icon-btn--edit" onClick={() => { setDeletingId(null); startEdit(c) }}>
+                            <Pencil size={12} />
+                          </button>
+                          <button className="ct-icon-btn ct-icon-btn--delete" onClick={() => { setEditingId(null); setDeletingId(c.id) }}>
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       )}
                     </td>
                   )}
@@ -974,6 +1001,11 @@ export default function CriteriaClient({
     if (res.ok) setPeriod(data)
   }
 
+  async function handleDeleteCriterion(id: string) {
+    const res = await fetch(`/api/criteria?id=${id}`, { method: 'DELETE' })
+    if (res.ok) setCriteria(prev => prev.filter(c => c.id !== id))
+  }
+
   async function handleUpdateCriterion(id: string, fields: { code: string | null; name: string; notes: string | null; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) {
     const res = await fetch('/api/criteria', {
       method: 'PUT',
@@ -1139,6 +1171,7 @@ export default function CriteriaClient({
           criteria={criteria}
           canEdit={canEdit}
           onUpdateCriterion={handleUpdateCriterion}
+          onDeleteCriterion={handleDeleteCriterion}
           onAddRow={() => setShowAdd(true)}
           onImportCsv={canEdit ? () => setShowImport(true) : undefined}
         />
@@ -1389,6 +1422,13 @@ export default function CriteriaClient({
         .ct-row-actions { display: flex; align-items: center; gap: 4px; }
         .ct-icon-btn--edit   { background: transparent; color: rgba(255,255,255,0.2); }
         .ct-icon-btn--edit:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }
+        .ct-icon-btn--delete { background: transparent; color: rgba(255,255,255,0.15); }
+        .ct-icon-btn--delete:hover { background: rgba(220,30,30,0.12); color: rgba(255,80,80,0.8); }
+        .ct-icon-btn--del-yes { background: rgba(220,30,30,0.18); color: rgba(255,80,80,0.9); }
+        .ct-icon-btn--del-yes:hover { background: rgba(220,30,30,0.32); }
+        .ct-icon-btn--del-yes:disabled { opacity: 0.5; cursor: not-allowed; }
+        .ct-row-actions--confirm { gap: 6px; }
+        .ct-del-warn { font-size: 11px; color: rgba(255,120,120,0.75); white-space: nowrap; }
         .ct-type-badge {
           display: inline-flex; align-items: center; gap: 4px;
           padding: 2px 8px; border-radius: 20px; font-size: 11px;
@@ -1635,6 +1675,11 @@ export default function CriteriaClient({
         [data-theme="light"] .ct-weight-input { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: #1a1a1a; }
         [data-theme="light"] .ct-icon-btn--cancel { background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.3); }
         [data-theme="light"] .ct-icon-btn--edit   { color: rgba(0,0,0,0.25); }
+        [data-theme="light"] .ct-icon-btn--delete { color: rgba(0,0,0,0.18); }
+        [data-theme="light"] .ct-icon-btn--delete:hover { background: rgba(200,0,0,0.07); color: rgba(180,0,0,0.7); }
+        [data-theme="light"] .ct-icon-btn--del-yes { background: rgba(200,0,0,0.1); color: rgba(160,0,0,0.85); }
+        [data-theme="light"] .ct-icon-btn--del-yes:hover { background: rgba(200,0,0,0.18); }
+        [data-theme="light"] .ct-del-warn { color: rgba(160,0,0,0.7); }
         [data-theme="light"] .no-period-hint { color: rgba(0,0,0,0.3); }
         [data-theme="light"] .modal-card { background: #fff; border-color: rgba(0,0,0,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
         [data-theme="light"] .modal-header { border-bottom-color: rgba(0,0,0,0.07); }
