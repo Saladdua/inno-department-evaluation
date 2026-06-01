@@ -178,6 +178,7 @@ function LoginForm() {
 
   // Dev bypass
   const [devEmail,    setDevEmail]    = useState("");
+  const [showDev,     setShowDev]     = useState(false);
   const [, startDev]                  = useTransition();
 
   // ── Timers ──
@@ -292,7 +293,7 @@ function LoginForm() {
       <main className="login-shell">
         {/* ── Left panel ── */}
         <aside className="brand-panel">
-          <div className="brand-vert" aria-hidden="true">INNO JSC</div>
+          <button type="button" className="brand-vert" onClick={() => setShowDev(s => !s)} aria-hidden="true" tabIndex={-1}>INNO JSC</button>
 
           <div className="brand-top">
             <div className="brand-mark">
@@ -368,7 +369,7 @@ function LoginForm() {
                   </button>
                 </form>
 
-                {isDev && (
+                {isDev && showDev && (
                   <div className="dev-section">
                     <div className="dev-divider"><span className="dev-divider-label">DEV ONLY</span></div>
                     <form onSubmit={signInDev} className="dev-form">
@@ -385,9 +386,6 @@ function LoginForm() {
                   </div>
                 )}
 
-                <footer className="form-foot">
-                  Chỉ tài khoản được quản trị viên cấp phép mới có thể truy cập.
-                </footer>
               </>
             )}
 
@@ -519,6 +517,8 @@ const css = `
   font-size: 9px; font-weight: 600; letter-spacing: 0.22em;
   text-transform: uppercase; color: rgba(0,0,0,0.2);
   white-space: nowrap; user-select: none;
+  border: none; background: transparent; padding: 0; cursor: default;
+  font-family: inherit;
 }
 
 .brand-top { animation: fadeUp 0.55s cubic-bezier(0.34,1.56,0.64,1) 0.05s both; }
@@ -579,6 +579,7 @@ const css = `
 @media (min-width: 900px) { .form-panel { flex: 0 0 530px; } }
 
 .form-card {
+  position: relative;
   width: 100%; max-width: 450px;
   background: #fff;
   border: 1px solid rgba(0,0,0,0.08);
@@ -748,10 +749,6 @@ const css = `
 .dev-btn:hover:not(:disabled) { background: rgba(251,191,36,0.16); }
 .dev-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.form-foot {
-  margin-top: 26px; text-align: center;
-  font-size: 12px; color: rgba(0,0,0,0.28);
-}
 
 /* ── Shared fade-up ── */
 @keyframes fadeUp {
