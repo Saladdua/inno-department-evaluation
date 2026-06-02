@@ -174,13 +174,15 @@ export default async function ResultsPage({
       }
     })
 
-    // Load persisted score overrides
-    if (canManageAll) {
-      const { data: overridesData } = await supabase
-        .from('score_overrides')
-        .select('dept_id, score')
-        .eq('period_id', period.id)
-      for (const ov of overridesData ?? []) {
+    // Load persisted score overrides — apply for all roles so department users see imported results
+    const { data: overridesData } = await supabase
+      .from('score_overrides')
+      .select('dept_id, score')
+      .eq('period_id', period.id)
+    for (const ov of overridesData ?? []) {
+      const r = results.find(r => r.id === ov.dept_id)
+      if (r) r.avgScore = Number(ov.score)
+      if (canManageAll) {
         const dept = depts.find(d => d.id === ov.dept_id)
         const region = dept?.region ?? 'Miền Bắc'
         if (!initialOverrides[region]) initialOverrides[region] = {}
