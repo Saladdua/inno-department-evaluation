@@ -417,7 +417,8 @@ function PublicResultsPage() {
         .pr-hero-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #B30000; margin-bottom: 8px; }
         .pr-hero-title {
           font-size: clamp(32px, 5vw, 56px); font-weight: 900;
-          letter-spacing: -0.03em; line-height: 1.05;
+          letter-spacing: -0.03em; line-height: 1.15;
+          padding-bottom: 0.08em;
           background: linear-gradient(130deg, #0f0f0f 30%, #B30000 100%);
           -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
         }
