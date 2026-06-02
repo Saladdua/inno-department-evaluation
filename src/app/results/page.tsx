@@ -156,10 +156,11 @@ function PublicResultsPage() {
   const yearParam    = params.get('year')
   const quarterParam = params.get('quarter')
 
-  const [periods,  setPeriods]  = useState<PeriodOption[]>([])
-  const [results,  setResults]  = useState<DeptResult[]>([])
-  const [loading,  setLoading]  = useState(true)
-  const [region,   setRegion]   = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
+  const [periods,    setPeriods]    = useState<PeriodOption[]>([])
+  const [results,    setResults]    = useState<DeptResult[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [region,     setRegion]     = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
+  const [barVisible, setBarVisible] = useState(false)
 
   useEffect(() => {
     fetch('/api/public/results?periods=true')
@@ -186,12 +187,19 @@ function PublicResultsPage() {
   useEffect(() => {
     if (!activePeriod) { setResults([]); setLoading(false); return }
     setLoading(true)
+    setBarVisible(false)
     fetch(`/api/public/results?periodId=${activePeriod.id}`)
       .then(r => r.json())
       .then(data => setResults(data ?? []))
       .catch(() => setResults([]))
       .finally(() => setLoading(false))
   }, [activePeriod?.id])
+
+  useEffect(() => {
+    if (!loading && results.length > 0) {
+      requestAnimationFrame(() => requestAnimationFrame(() => setBarVisible(true)))
+    }
+  }, [loading, results])
 
   const displayResults = useMemo(() => {
     const filtered = results.filter(r => (r.region ?? 'Miền Bắc') === region)
@@ -334,14 +342,17 @@ function PublicResultsPage() {
                 {tableRows.map((r, i) => (
                   <div key={r.id}
                     className={`pr-row${r.avgScore == null ? ' pr-row--unranked' : ''}`}
-                    style={{ animationDelay: `${0.05 + i * 0.04}s` } as React.CSSProperties}>
+                    style={{ animationDelay: `${0.08 + i * 0.06}s` } as React.CSSProperties}>
                     <div className="pr-row-rank-wrap">
                       <span className="pr-row-rank">{r.avgScore != null ? r.rank : '—'}</span>
                     </div>
                     <div className="pr-row-mid">
                       <span className="pr-row-name">{r.name}</span>
                       <div className="pr-bar-track">
-                        <div className="pr-bar-fill" style={{ width: `${pct(r.avgScore).toFixed(1)}%` }} />
+                        <div className="pr-bar-fill" style={{
+                          width: barVisible ? `${pct(r.avgScore).toFixed(1)}%` : '0%',
+                          transitionDelay: `${0.12 + i * 0.06}s`,
+                        }} />
                       </div>
                     </div>
                     <div className="pr-row-score-col">
@@ -454,7 +465,11 @@ function PublicResultsPage() {
         .pr-podium-slot--1 .pr-pm-card { animation-delay: 0.08s; }
         .pr-podium-slot--2 .pr-pm-card { animation-delay: 0.18s; }
         .pr-podium-slot--3 .pr-pm-card { animation-delay: 0.24s; }
-        @keyframes prPopIn { from { opacity: 0; transform: translateY(24px) scale(0.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes prPopIn {
+          0%   { opacity: 0; transform: translateY(32px) scale(0.88); }
+          60%  { opacity: 1; transform: translateY(-6px) scale(1.03); }
+          100% { opacity: 1; transform: translateY(0)    scale(1); }
+        }
 
         .pr-pm-medal-badge { position: absolute; top: -16px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #fff; box-shadow: 0 4px 14px rgba(0,0,0,0.25); }
         .pr-pm-emoji { font-size: 36px; line-height: 1; margin-top: 8px; }
@@ -478,7 +493,10 @@ function PublicResultsPage() {
         }
         .pr-row:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.09); transform: translateY(-2px); }
         .pr-row--unranked { opacity: 0.45; }
-        @keyframes prFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes prFadeUp {
+          from { opacity: 0; transform: translateY(20px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0)   scale(1); }
+        }
 
         .pr-row-rank-wrap { width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0; background: rgba(0,0,0,0.04); display: flex; align-items: center; justify-content: center; }
         .pr-row-rank { font-size: 16px; font-weight: 900; color: rgba(0,0,0,0.35); }
@@ -487,7 +505,7 @@ function PublicResultsPage() {
         .pr-row-name { font-size: 16px; font-weight: 700; color: #0f0f0f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .pr-bar-track { height: 7px; background: rgba(0,0,0,0.07); border-radius: 99px; overflow: hidden; }
-        .pr-bar-fill { height: 100%; background: linear-gradient(90deg, #B30000 0%, #ff4500 100%); border-radius: 99px; transition: width 0.8s cubic-bezier(0.34,1.2,0.64,1); box-shadow: 0 0 10px rgba(179,0,0,0.35); }
+        .pr-bar-fill { height: 100%; background: linear-gradient(90deg, #B30000 0%, #ff4500 100%); border-radius: 99px; transition: width 1.1s cubic-bezier(0.22,1,0.36,1); box-shadow: 0 0 10px rgba(179,0,0,0.35); }
 
         .pr-row-score-col { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; min-width: 80px; }
         .pr-row-score { font-size: 24px; font-weight: 200; letter-spacing: -0.03em; color: #B30000; line-height: 1; }
