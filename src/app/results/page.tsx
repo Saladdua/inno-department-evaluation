@@ -117,33 +117,31 @@ function PublicResultsPage() {
 
         {/* ── Filters ── */}
         <div className="pr-filters">
-          {/* Year pills */}
-          {years.length > 1 && (
-            <div className="pr-pill-group">
-              {years.map(y => (
-                <button key={y}
-                  className={`pr-pill${activeYear === y ? ' pr-pill--active' : ''}`}
-                  onClick={() => router.push(`/results?year=${y}`)}>
-                  {y}
-                </button>
-              ))}
+          {years.length > 0 && (
+            <div className="pr-select-wrap">
+              <select className="pr-select" value={activeYear}
+                onChange={e => router.push(`/results?year=${e.target.value}`)}>
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <svg className="pr-select-icon" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </div>
           )}
-
-          {/* Quarter pills */}
-          {quartersForYear.length > 1 && (
-            <div className="pr-pill-group">
-              {quartersForYear.map(q => (
-                <button key={q}
-                  className={`pr-pill${activeQuarter === q ? ' pr-pill--active' : ''}`}
-                  onClick={() => router.push(`/results?year=${activeYear}&quarter=${q}`)}>
-                  Quý {q}
-                </button>
-              ))}
+          {quartersForYear.length > 0 && (
+            <div className="pr-select-wrap">
+              <select className="pr-select" value={activeQuarter ?? ''}
+                onChange={e => router.push(`/results?year=${activeYear}&quarter=${e.target.value}`)}>
+                {[1,2,3,4].map(q => {
+                  const exists = quartersForYear.includes(q)
+                  return <option key={q} value={q} disabled={!exists}>Quý {q}</option>
+                })}
+              </select>
+              <svg className="pr-select-icon" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </div>
           )}
-
-          {/* Region tabs */}
           {hasRegions && (
             <div className="pr-region-tabs">
               {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
@@ -321,18 +319,26 @@ function PublicResultsPage() {
 
         /* ── Filters ── */
         .pr-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .pr-pill-group { display: flex; gap: 4px; background: rgba(0,0,0,0.05); padding: 3px; border-radius: 10px; }
-        .pr-pill {
-          padding: 5px 14px; border-radius: 7px; border: none; cursor: pointer;
-          font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
-          background: transparent; color: rgba(0,0,0,0.45); font-family: inherit;
-          transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+        .pr-select-wrap { position: relative; display: flex; align-items: center; }
+        .pr-select {
+          appearance: none; -webkit-appearance: none;
+          background: #fff; border: 1.5px solid rgba(0,0,0,0.12);
+          border-radius: 10px; padding: 8px 36px 8px 14px;
+          font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+          color: #1a1a1a; cursor: pointer; outline: none; font-family: inherit;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+          transition: border-color 0.15s, box-shadow 0.15s;
         }
-        .pr-pill:hover { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.75); }
-        .pr-pill--active { background: #fff; color: #B30000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-weight: 700; }
+        .pr-select:hover { border-color: rgba(179,0,0,0.4); }
+        .pr-select:focus { border-color: #B30000; box-shadow: 0 0 0 3px rgba(179,0,0,0.1); }
+        .pr-select option:disabled { color: rgba(0,0,0,0.25); }
+        .pr-select-icon {
+          position: absolute; right: 12px; pointer-events: none;
+          color: rgba(0,0,0,0.35);
+        }
         .pr-region-tabs { display: flex; gap: 4px; background: rgba(0,0,0,0.05); padding: 3px; border-radius: 10px; }
         .pr-region-tab {
-          padding: 5px 14px; border-radius: 7px; border: none; cursor: pointer;
+          padding: 6px 14px; border-radius: 7px; border: none; cursor: pointer;
           font-size: 12px; font-weight: 600; background: transparent;
           color: rgba(0,0,0,0.45); font-family: inherit;
           transition: background 0.15s, color 0.15s, box-shadow 0.15s;
