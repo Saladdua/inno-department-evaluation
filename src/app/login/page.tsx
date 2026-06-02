@@ -538,7 +538,7 @@ const css = `
 }
 
 .brand-eyebrow {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.22em;
+  font-size: 16px; font-weight: 600; letter-spacing: 0.22em;
   text-transform: uppercase; color: #B30000;
   margin-bottom: 16px;
   animation: fadeUp 0.55s cubic-bezier(0.34,1.3,0.64,1) 0.18s both;
