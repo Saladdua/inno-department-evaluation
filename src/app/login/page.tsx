@@ -305,14 +305,11 @@ function LoginForm() {
           </div>
 
           <div className="brand-body">
-            <p className="brand-eyebrow">Hệ thống nội bộ</p>
+            <p className="brand-eyebrow">Hệ thống</p>
             <h1 className="brand-headline">
               Đánh giá<br />Phòng ban
             </h1>
             <div className="brand-rule" aria-hidden="true" />
-            <p className="brand-sub">
-              Nền tảng đánh giá nội bộ chuyên nghiệp<br />dành riêng cho doanh nghiệp.
-            </p>
           </div>
         </aside>
 
