@@ -2,7 +2,7 @@
 
 import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Table2, Lock, Upload, X } from "lucide-react";
+import { ChevronDown, Table2, Lock, Upload, X, Copy, Check } from "lucide-react";
 
 export interface CriterionInfo {
   id: string;
@@ -818,6 +818,16 @@ export default function ResultsClient({
     );
   }
 
+  const [copyDone, setCopyDone] = useState(false);
+
+  function handleCopyLink() {
+    const url = `${window.location.origin}/results?year=${activeYear}${activeQuarter !== null ? `&quarter=${activeQuarter}` : ""}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopyDone(true);
+      setTimeout(() => setCopyDone(false), 2000);
+    });
+  }
+
   const medalColors: Record<number, string> = {
     1: "#C8A84B",
     2: "#9EB5C8",
@@ -882,6 +892,15 @@ export default function ResultsClient({
             )}
           </div>
           <div className="rs-header-right">
+            {canManageAll && (
+              <button
+                className={`rs-dl-btn rs-copy-btn${copyDone ? " rs-copy-btn--done" : ""}`}
+                onClick={handleCopyLink}
+                title="Sao chép link kết quả công khai"
+              >
+                {copyDone ? <><Check size={13} /> Đã sao chép!</> : <><Copy size={13} /> Sao chép link</>}
+              </button>
+            )}
             {canManageAll && isSuperAdmin && periodId !== null && (
               <button
                 className="rs-dl-btn rs-import-btn"
@@ -931,7 +950,7 @@ export default function ResultsClient({
                       <div
                         className={`rs-pm-rank-badge rs-pm-rank-badge--${place}`}
                       >
-                        {place === 1 ? '🥇' : place === 2 ? '🥈' : '🥉'}
+                        {place}
                       </div>
                       <span className="rs-pm-code">{r.code ?? r.name}</span>
                       <span className="rs-pm-score" style={{ color }}>
@@ -1303,6 +1322,13 @@ const rsStyles = `
   .rs-import-btn { background: rgba(179,0,0,0.1); color: rgba(220,80,80,0.9); border: 1px solid rgba(179,0,0,0.22); }
   .rs-import-btn:hover { background: rgba(179,0,0,0.18); }
   [data-theme="light"] .rs-import-btn { background: rgba(179,0,0,0.07); color: rgba(160,0,0,0.9); border-color: rgba(179,0,0,0.18); }
+
+  .rs-copy-btn { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); cursor: pointer; transition: background 0.15s, color 0.15s; }
+  .rs-copy-btn:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.8); }
+  .rs-copy-btn--done { background: rgba(34,197,94,0.1); color: #22c55e; border-color: rgba(34,197,94,0.22); }
+  [data-theme="light"] .rs-copy-btn { background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.5); border-color: rgba(0,0,0,0.1); }
+  [data-theme="light"] .rs-copy-btn:hover { background: rgba(0,0,0,0.07); color: rgba(0,0,0,0.75); }
+  [data-theme="light"] .rs-copy-btn--done { background: rgba(22,163,74,0.08); color: #16a34a; border-color: rgba(22,163,74,0.2); }
 
   .rs-import-badge {
     display: inline-flex; align-items: center; gap: 6px;
