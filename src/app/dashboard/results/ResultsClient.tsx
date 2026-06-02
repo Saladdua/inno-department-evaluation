@@ -891,16 +891,6 @@ export default function ResultsClient({
                 <Upload size={13} /> {isSaving ? "Đang lưu…" : "Nhập CSV"}
               </button>
             )}
-            {(canManageAll || periodStatus === "closed") &&
-              results.length > 0 && (
-                <button
-                  className="rs-dl-btn rs-dl-btn--xls"
-                  onClick={handleDownloadXLS}
-                  title="Tải Excel"
-                >
-                  <Table2 size={13} /> Excel
-                </button>
-              )}
           </div>
         </div>
 
