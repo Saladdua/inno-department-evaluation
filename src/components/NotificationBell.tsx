@@ -48,14 +48,21 @@ function notifTitle(n: Notification): string {
   if (n.type === 'report_submitted')
     return `Báo cáo từ ${d.reporter_dept_name ?? 'một phòng ban'} về ${d.evaluator_dept_name ?? '—'}`
   if (n.type === 'report_resolved') {
+    const byAdmin = d.source === 'admin'
     if (d.role === 'reporter') {
-      return d.action === 'approve'
-        ? `Báo cáo của bạn được chấp thuận — lựa chọn của ${d.evaluator_dept_name ?? 'phòng kia'} đã bị gỡ`
-        : `Báo cáo của bạn đã được đóng bởi quản trị`
+      if (d.action === 'approve')
+        return byAdmin
+          ? `Admin đã chấp thuận báo cáo của bạn — lựa chọn đánh giá của ${d.evaluator_dept_name ?? 'phòng ban kia'} đã bị gỡ`
+          : `${d.evaluator_dept_name ?? 'Phòng ban kia'} đã chấp nhận báo cáo — lựa chọn đánh giá đã được gỡ`
+      if (d.action === 'reject')
+        return `Báo cáo của bạn với ${d.evaluator_dept_name ?? 'phòng ban kia'} đã bị từ chối, vui lòng liên hệ với Admin để được xử lí`
+      return `Admin đã đóng báo cáo của bạn với ${d.evaluator_dept_name ?? 'phòng ban kia'}`
     }
-    return d.action === 'approve'
-      ? `Lựa chọn đánh giá của bạn đối với ${d.reporter_dept_name ?? 'một phòng ban'} đã bị gỡ`
-      : `Báo cáo từ ${d.reporter_dept_name ?? 'một phòng ban'} về lựa chọn của bạn đã được đóng`
+    if (d.action === 'approve')
+      return byAdmin
+        ? `Admin đã gỡ lựa chọn đánh giá của bạn với ${d.reporter_dept_name ?? 'phòng ban kia'} theo báo cáo`
+        : `Bạn đã chấp nhận báo cáo — lựa chọn đánh giá với ${d.reporter_dept_name ?? 'phòng ban kia'} đã được gỡ`
+    return `Admin đã đóng báo cáo từ ${d.reporter_dept_name ?? 'phòng ban kia'} về lựa chọn của bạn`
   }
   if (n.type === 'report_request')
     return `${d.reporter_dept_name ?? 'Phòng ban'} báo cáo về việc bạn chọn họ để đánh giá`

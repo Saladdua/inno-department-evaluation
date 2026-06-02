@@ -94,21 +94,35 @@ export async function PATCH(req: Request) {
       await supabase.from('notifications').insert({
         type: 'report_resolved',
         recipient_dept_id: reporter_id,
-        data: { action: 'approve', role: 'reporter', reporter_dept_name: deptName(reporter_id), evaluator_dept_name: deptName(evaluator_id) },
+        data: { action: 'approve', role: 'reporter', source: 'evaluator', reporter_dept_name: deptName(reporter_id), evaluator_dept_name: deptName(evaluator_id) },
       })
     }
     await supabase.from('notifications').insert({
       type: 'report_resolved',
       recipient_dept_id: evaluator_id,
-      data: { action: 'approve', role: 'evaluator', reporter_dept_name: deptName(reporter_id ?? ''), evaluator_dept_name: deptName(evaluator_id) },
+      data: { action: 'approve', role: 'evaluator', source: 'evaluator', reporter_dept_name: deptName(reporter_id ?? ''), evaluator_dept_name: deptName(evaluator_id) },
     })
   } else {
-    // Reject: escalate to admin
+    // Reject: escalate to admin + notify reporter
     await supabase.from('notifications').insert({
       type: 'report_submitted',
       recipient_dept_id: null,
       data: { ...nd, escalated: 'true' },
     })
+
+    const deptIds = [reporter_id, evaluator_id].filter(Boolean) as string[]
+    const { data: depts } = deptIds.length
+      ? await supabase.from('departments').select('id, name').in('id', deptIds)
+      : { data: [] }
+    const deptNameR = (id: string) => (depts ?? []).find(d => d.id === id)?.name ?? 'Phòng ban'
+
+    if (reporter_id) {
+      await supabase.from('notifications').insert({
+        type: 'report_resolved',
+        recipient_dept_id: reporter_id,
+        data: { action: 'reject', role: 'reporter', source: 'evaluator', reporter_dept_name: deptNameR(reporter_id), evaluator_dept_name: deptNameR(evaluator_id) },
+      })
+    }
   }
 
   return NextResponse.json({ ok: true })
@@ -173,7 +187,7 @@ export async function DELETE(req: Request) {
     await supabase.from('notifications').insert({
       type: 'report_resolved',
       recipient_dept_id: reporter_id,
-      data: { action, role: 'reporter', reporter_dept_name: reporterName, evaluator_dept_name: evaluatorName },
+      data: { action, role: 'reporter', source: 'admin', reporter_dept_name: reporterName, evaluator_dept_name: evaluatorName },
     })
   }
 
@@ -182,7 +196,7 @@ export async function DELETE(req: Request) {
     await supabase.from('notifications').insert({
       type: 'report_resolved',
       recipient_dept_id: evaluator_id,
-      data: { action, role: 'evaluator', reporter_dept_name: reporterName, evaluator_dept_name: evaluatorName },
+      data: { action, role: 'evaluator', source: 'admin', reporter_dept_name: reporterName, evaluator_dept_name: evaluatorName },
     })
   }
 
