@@ -106,16 +106,39 @@ export async function PATCH(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-// DELETE /api/notifications?id=xxx — dismiss a notification for the current user
+// DELETE /api/notifications?id=xxx — dismiss one notification for the current user
+// DELETE /api/notifications?all=true  — dismiss all visible notifications
 export async function DELETE(req: Request) {
   const user = await getAuthUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
+  const supabase = createServiceClient()
+
+  if (searchParams.get('all') === 'true') {
+    const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
+    let q = supabase.from('notifications').select('id')
+    if (!canManageAll && user.departmentId) {
+      q = q.or(`recipient_dept_id.eq.${user.departmentId},recipient_dept_id.is.null`)
+    } else if (!canManageAll) {
+      q = q.is('recipient_dept_id', null)
+    }
+    const { data } = await q
+    const ids = (data ?? []).map(n => n.id)
+    if (ids.length === 0) return NextResponse.json({ ok: true })
+    const { error } = await supabase
+      .from('notification_reads')
+      .upsert(
+        ids.map(id => ({ user_id: user.id, notification_id: id, dismissed: true })),
+        { onConflict: 'user_id,notification_id' }
+      )
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
-  const supabase = createServiceClient()
   const { error } = await supabase
     .from('notification_reads')
     .upsert(

@@ -155,6 +155,11 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
     await fetch(`/api/notifications?id=${id}`, { method: 'DELETE' })
   }
 
+  async function dismissAll() {
+    setNotifications([])
+    await fetch('/api/notifications?all=true', { method: 'DELETE' })
+  }
+
   function handleItemClick(n: Notification) {
     if (!n.is_read) markRead(n.id)
     const href = notifHref(n)
@@ -215,6 +220,9 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {unreadCount > 0 && (
             <button className="nb-mark-all" onClick={markAllRead}>Đọc tất cả</button>
+          )}
+          {visibleNotifications.length > 0 && (
+            <button className="nb-mark-all nb-mark-all--del" onClick={dismissAll}>Xoá tất cả</button>
           )}
           <button className="nb-close" onClick={() => setOpen(false)}>
             <X size={13} />
@@ -356,6 +364,10 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
         .nb-popup-title { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); font-family: var(--font-sans), sans-serif; }
         .nb-mark-all { background: none; border: none; cursor: pointer; font-size: 11px; color: rgba(179,0,0,0.8); padding: 0; font-family: var(--font-sans), sans-serif; }
         .nb-mark-all:hover { color: #B30000; }
+        .nb-mark-all--del { color: rgba(255,255,255,0.25); }
+        .nb-mark-all--del:hover { color: rgba(255,255,255,0.55); }
+        [data-theme="light"] .nb-mark-all--del { color: rgba(0,0,0,0.25); }
+        [data-theme="light"] .nb-mark-all--del:hover { color: rgba(0,0,0,0.55); }
         .nb-close { background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.35); display: flex; align-items: center; padding: 2px; }
         .nb-close:hover { color: rgba(255,255,255,0.7); }
 
