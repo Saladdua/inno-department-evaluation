@@ -1,8 +1,123 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+
+function useKineticGrid(ref: React.RefObject<HTMLCanvasElement | null>) {
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    let W = window.innerWidth, H = window.innerHeight
+    let mx = W / 2, my = H / 2
+    canvas.width = W; canvas.height = H
+
+    const GAP = 38, RADIUS = 130, PUSH = 18, LERP = 0.08
+    type Dot = { ox: number; oy: number; x: number; y: number }
+    let grid: Dot[] = []
+
+    function build() {
+      grid = []
+      const cols = Math.ceil(W / GAP) + 2
+      const rows = Math.ceil(H / GAP) + 2
+      for (let r = 0; r <= rows; r++)
+        for (let c = 0; c <= cols; c++)
+          grid.push({ ox: c * GAP, oy: r * GAP, x: c * GAP, y: r * GAP })
+    }
+    build()
+
+    let raf: number
+    function tick() {
+      ctx.clearRect(0, 0, W, H)
+      for (const d of grid) {
+        const dx = d.ox - mx, dy = d.oy - my
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        let tx = d.ox, ty = d.oy
+        if (dist < RADIUS && dist > 0) {
+          const str = (1 - dist / RADIUS) * PUSH
+          tx = d.ox + (dx / dist) * str
+          ty = d.oy + (dy / dist) * str
+        }
+        d.x += (tx - d.x) * LERP
+        d.y += (ty - d.y) * LERP
+        const cdx = d.x - mx, cdy = d.y - my
+        const prox = Math.max(0, 1 - Math.sqrt(cdx * cdx + cdy * cdy) / RADIUS)
+        const alpha = 0.06 + prox * 0.22
+        const r = 1.0 + prox * 1.4
+        ctx.beginPath()
+        ctx.arc(d.x, d.y, r, 0, Math.PI * 2)
+        ctx.fillStyle = `rgba(179,0,0,${alpha.toFixed(3)})`
+        ctx.fill()
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+
+    const onMove = (e: MouseEvent) => { mx = e.clientX; my = e.clientY }
+    const onResize = () => { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; build() }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('resize', onResize)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('mousemove', onMove); window.removeEventListener('resize', onResize) }
+  }, [ref])
+}
+
+function useConfetti(ref: React.RefObject<HTMLCanvasElement | null>) {
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    let W = window.innerWidth, H = window.innerHeight
+    canvas.width = W; canvas.height = H
+
+    const COLORS = ['#B30000','#FF4500','#FFD700','#FFA500','#FF6B6B','#FF8C42','#C8A84B','#E63946']
+    type Piece = { x: number; y: number; w: number; h: number; color: string; vx: number; vy: number; angle: number; spin: number; alpha: number; shape: 'rect' | 'circle' }
+
+    function spawn(): Piece {
+      return {
+        x: Math.random() * W,
+        y: -20,
+        w: Math.random() * 8 + 4,
+        h: Math.random() * 14 + 6,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        vx: (Math.random() - 0.5) * 1.8,
+        vy: Math.random() * 2 + 1.2,
+        angle: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.12,
+        alpha: Math.random() * 0.55 + 0.35,
+        shape: Math.random() > 0.4 ? 'rect' : 'circle',
+      }
+    }
+
+    const pieces: Piece[] = Array.from({ length: 60 }, spawn)
+
+    let raf: number
+    function tick() {
+      ctx.clearRect(0, 0, W, H)
+      for (const p of pieces) {
+        p.x += p.vx; p.y += p.vy; p.angle += p.spin
+        if (p.y > H + 20) { Object.assign(p, spawn(), { y: -20 }) }
+        ctx.save()
+        ctx.globalAlpha = p.alpha
+        ctx.translate(p.x, p.y)
+        ctx.rotate(p.angle)
+        ctx.fillStyle = p.color
+        if (p.shape === 'circle') {
+          ctx.beginPath(); ctx.ellipse(0, 0, p.w / 2, p.h / 2, 0, 0, Math.PI * 2); ctx.fill()
+        } else {
+          ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h)
+        }
+        ctx.restore()
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+
+    const onResize = () => { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H }
+    window.addEventListener('resize', onResize)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize) }
+  }, [ref])
+}
 
 const LOGO_URL = process.env.NEXT_PUBLIC_COMPANY_LOGO_URL ?? ''
 
@@ -34,6 +149,10 @@ function pct(score: number | null, max = 100) {
 function PublicResultsPage() {
   const router = useRouter()
   const params = useSearchParams()
+  const gridRef     = useRef<HTMLCanvasElement>(null)
+  const confettiRef = useRef<HTMLCanvasElement>(null)
+  useKineticGrid(gridRef)
+  useConfetti(confettiRef)
   const yearParam    = params.get('year')
   const quarterParam = params.get('quarter')
 
@@ -102,6 +221,8 @@ function PublicResultsPage() {
 
   return (
     <div className="pr-root">
+      <canvas ref={gridRef}     className="pr-canvas pr-canvas--grid"     aria-hidden="true" />
+      <canvas ref={confettiRef} className="pr-canvas pr-canvas--confetti" aria-hidden="true" />
       <div className="pr-blob pr-blob--1" aria-hidden="true" />
       <div className="pr-blob pr-blob--2" aria-hidden="true" />
 
@@ -256,6 +377,10 @@ function PublicResultsPage() {
           padding: 36px 56px 56px;
           gap: 40px;
         }
+
+        .pr-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; }
+        .pr-canvas--grid     { z-index: 0; opacity: 0.6; }
+        .pr-canvas--confetti { z-index: 1; opacity: 1; }
 
         .pr-blob { position: fixed; border-radius: 50%; pointer-events: none; z-index: 0; filter: blur(90px); }
         .pr-blob--1 { width: 600px; height: 600px; background: radial-gradient(circle, rgba(179,0,0,0.1) 0%, transparent 70%); top: -200px; right: -150px; }
