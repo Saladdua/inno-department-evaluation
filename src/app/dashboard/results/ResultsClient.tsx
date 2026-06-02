@@ -931,7 +931,7 @@ export default function ResultsClient({
                       <div
                         className={`rs-pm-rank-badge rs-pm-rank-badge--${place}`}
                       >
-                        {place}
+                        {place === 1 ? '🥇' : place === 2 ? '🥈' : '🥉'}
                       </div>
                       <span className="rs-pm-code">{r.code ?? r.name}</span>
                       <span className="rs-pm-score" style={{ color }}>
@@ -947,7 +947,7 @@ export default function ResultsClient({
                       }}
                     >
                       <span className="rs-pm-num" style={{ color }}>
-                        {place}
+                        {place === 1 ? '🥇' : place === 2 ? '🥈' : '🥉'}
                       </span>
                     </div>
                   </div>

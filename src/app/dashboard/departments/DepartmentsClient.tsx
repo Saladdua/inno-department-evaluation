@@ -590,11 +590,14 @@ export default function DepartmentsClient({ initialDepartments }: { initialDepar
         [data-theme="light"] .dm-btn--ghost:hover:not(:disabled) { background: #ebebeb; color: rgba(0,0,0,0.75); }
         [data-theme="light"] select.dm-input option { background: #fff; color: #1a1a1a; }
 
-        [data-theme="light"] .da-region-card { background: #fff; border-color: rgba(0,0,0,0.08); }
-        [data-theme="light"] .da-region-card--north { background: rgba(99,179,237,0.04); border-color: rgba(99,179,237,0.18); }
-        [data-theme="light"] .da-region-card--south { background: rgba(180,83,9,0.04); border-color: rgba(180,83,9,0.15); }
-        [data-theme="light"] .da-region-name { color: rgba(0,0,0,0.65); }
-        [data-theme="light"] .da-region-sub { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .da-region-card { background: #f8f8f8; border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .da-region-card--north { background: rgba(29,111,168,0.07); border-color: rgba(29,111,168,0.25); }
+        [data-theme="light"] .da-region-card--south { background: rgba(180,83,9,0.07); border-color: rgba(180,83,9,0.22); }
+        [data-theme="light"] .da-region-card--north.da-region-card--active { background: rgba(29,111,168,0.13); border-color: rgba(29,111,168,0.45); box-shadow: 0 0 0 2px rgba(29,111,168,0.18); }
+        [data-theme="light"] .da-region-card--south.da-region-card--active { background: rgba(180,83,9,0.12); border-color: rgba(180,83,9,0.42); box-shadow: 0 0 0 2px rgba(180,83,9,0.16); }
+        [data-theme="light"] .da-region-card:hover { background: rgba(0,0,0,0.04); }
+        [data-theme="light"] .da-region-name { color: rgba(0,0,0,0.7); }
+        [data-theme="light"] .da-region-sub { color: rgba(0,0,0,0.35); }
         [data-theme="light"] .da-region-total--north { color: #1d6fa8; }
         [data-theme="light"] .da-region-total--south { color: #b45309; }
         [data-theme="light"] .da-dept-region--north { background: rgba(29,111,168,0.08); color: #1d6fa8; border-color: rgba(29,111,168,0.18); }

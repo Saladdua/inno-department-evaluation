@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
-import { UserPlus, Pencil, Trash2, X, Search } from 'lucide-react'
+import { UserPlus, Pencil, Trash2, X, Search, Download } from 'lucide-react'
 
 export interface Department {
   id: string
@@ -239,6 +239,26 @@ export default function UsersClient({
     })
   }
 
+  function handleExportCSV() {
+    const headers = ['Họ và tên', 'Email', 'Vai trò', 'Phòng ban', 'Cơ sở']
+    const rows = users.map(u => [
+      u.name,
+      u.email,
+      ROLE_LABEL[u.role],
+      u.departments?.name ?? '',
+      u.region ?? 'Miền Bắc',
+    ])
+    const csv = [headers, ...rows]
+      .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'tai_khoan.csv'
+    document.body.appendChild(a); a.click()
+    document.body.removeChild(a); URL.revokeObjectURL(url)
+  }
+
   function handleDelete(u: AppUser) {
     if (!window.confirm(`Xóa tài khoản "${u.name}" (${u.email})?\n\nHành động này không thể hoàn tác.`)) return
     setDeletingId(u.id)
@@ -340,6 +360,10 @@ export default function UsersClient({
         </div>
 
         <div className="ua-toolbar-right">
+          <button className="ua-btn ua-btn--ghost" onClick={handleExportCSV} title="Xuất CSV">
+            <Download size={13} />
+            Xuất CSV
+          </button>
           <button className="ua-btn ua-btn--primary" onClick={() => setModal({ mode: 'add', user: null })}>
             <UserPlus size={13} />
             Thêm tài khoản
@@ -730,14 +754,17 @@ export default function UsersClient({
         [data-theme="light"] .um-btn--ghost { background: #f5f5f5; color: rgba(0,0,0,0.55); border-color: rgba(0,0,0,0.1); }
         [data-theme="light"] .um-btn--ghost:hover:not(:disabled) { background: #ebebeb; color: rgba(0,0,0,0.75); }
 
-        [data-theme="light"] .ua-region-card { background: #fff; border-color: rgba(0,0,0,0.08); }
-        [data-theme="light"] .ua-region-card--north { background: rgba(99,179,237,0.04); border-color: rgba(99,179,237,0.18); }
-        [data-theme="light"] .ua-region-card--south { background: rgba(180,83,9,0.04); border-color: rgba(180,83,9,0.15); }
-        [data-theme="light"] .ua-region-name { color: rgba(0,0,0,0.65); }
+        [data-theme="light"] .ua-region-card { background: #f8f8f8; border-color: rgba(0,0,0,0.1); }
+        [data-theme="light"] .ua-region-card--north { background: rgba(29,111,168,0.07); border-color: rgba(29,111,168,0.25); }
+        [data-theme="light"] .ua-region-card--south { background: rgba(180,83,9,0.07); border-color: rgba(180,83,9,0.22); }
+        [data-theme="light"] .ua-region-card--north.ua-region-card--active { background: rgba(29,111,168,0.13); border-color: rgba(29,111,168,0.45); box-shadow: 0 0 0 2px rgba(29,111,168,0.18); }
+        [data-theme="light"] .ua-region-card--south.ua-region-card--active { background: rgba(180,83,9,0.12); border-color: rgba(180,83,9,0.42); box-shadow: 0 0 0 2px rgba(180,83,9,0.16); }
+        [data-theme="light"] .ua-region-card:hover { background: rgba(0,0,0,0.04); }
+        [data-theme="light"] .ua-region-name { color: rgba(0,0,0,0.7); }
         [data-theme="light"] .ua-region-card--north .ua-region-total { color: #1d6fa8; }
         [data-theme="light"] .ua-region-card--south .ua-region-total { color: #b45309; }
-        [data-theme="light"] .ua-region-pill--amber { background: rgba(180,83,9,0.08); color: #b45309; border-color: rgba(180,83,9,0.18); }
-        [data-theme="light"] .ua-region-pill--blue  { background: rgba(29,111,168,0.08); color: #1d6fa8; border-color: rgba(29,111,168,0.18); }
+        [data-theme="light"] .ua-region-pill--amber { background: rgba(180,83,9,0.1); color: #b45309; border-color: rgba(180,83,9,0.22); }
+        [data-theme="light"] .ua-region-pill--blue  { background: rgba(29,111,168,0.1); color: #1d6fa8; border-color: rgba(29,111,168,0.22); }
         [data-theme="light"] .ua-region-badge--north { background: rgba(29,111,168,0.08); color: #1d6fa8; border-color: rgba(29,111,168,0.18); }
         [data-theme="light"] .ua-region-badge--south { background: rgba(180,83,9,0.08); color: #b45309; border-color: rgba(180,83,9,0.18); }
       `}</style>

@@ -2,7 +2,7 @@ import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
 import type { UserRole } from '@/auth'
 
-const PUBLIC_PATHS = ['/login']
+const PUBLIC_PATHS = ['/login', '/results']
 
 // Which roles can access each route prefix (most-specific first)
 const ROLE_GATES: { prefix: string; roles: UserRole[] }[] = [

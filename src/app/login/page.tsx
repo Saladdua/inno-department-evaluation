@@ -289,11 +289,14 @@ function LoginForm() {
   return (
     <div className="login-root">
       <KineticGrid />
+      {isDev && (
+        <button type="button" className="dev-corner-trigger" onClick={() => setShowDev(s => !s)} aria-hidden="true" tabIndex={-1} />
+      )}
 
       <main className="login-shell">
         {/* ── Left panel ── */}
         <aside className="brand-panel">
-          <button type="button" className="brand-vert" onClick={() => setShowDev(s => !s)} aria-hidden="true" tabIndex={-1}>INNO JSC</button>
+          <div className="brand-vert" aria-hidden="true">INNO JSC</div>
 
           <div className="brand-top">
             <div className="brand-mark">
@@ -514,8 +517,14 @@ const css = `
   font-size: 9px; font-weight: 600; letter-spacing: 0.22em;
   text-transform: uppercase; color: rgba(0,0,0,0.2);
   white-space: nowrap; user-select: none;
-  border: none; background: transparent; padding: 0; cursor: default;
-  font-family: inherit;
+}
+
+/* invisible dev trigger — top-right corner */
+.dev-corner-trigger {
+  position: fixed; top: 0; right: 0;
+  width: 52px; height: 52px;
+  background: transparent; border: none;
+  cursor: default; z-index: 200; padding: 0;
 }
 
 .brand-top { animation: fadeUp 0.55s cubic-bezier(0.34,1.56,0.64,1) 0.05s both; }
