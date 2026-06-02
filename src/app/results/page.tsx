@@ -74,9 +74,21 @@ function PublicResultsPage() {
       .finally(() => setLoading(false))
   }, [activePeriod?.id])
 
-  const displayResults = useMemo(() =>
-    results.filter(r => (r.region ?? 'Miền Bắc') === region),
-    [results, region])
+  const displayResults = useMemo(() => {
+    const filtered = results.filter(r => (r.region ?? 'Miền Bắc') === region)
+    // Re-rank within region
+    let rank = 1
+    filtered
+      .filter(r => r.avgScore != null)
+      .sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0))
+      .forEach(r => { r.rank = rank++ })
+    return filtered.sort((a, b) => {
+      if (a.avgScore != null && b.avgScore != null) return a.rank - b.rank
+      if (a.avgScore != null) return -1
+      if (b.avgScore != null) return 1
+      return a.name.localeCompare(b.name)
+    })
+  }, [results, region])
 
   const ranked   = displayResults.filter(r => r.avgScore != null)
   const unranked = displayResults.filter(r => r.avgScore == null)
@@ -232,11 +244,11 @@ function PublicResultsPage() {
       </footer>
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { background: #f0f2f5 !important; color: #1a1a1a !important; }
-        body { font-family: 'Outfit', system-ui, sans-serif; min-height: 100dvh; }
+        body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; min-height: 100dvh; }
 
         .pr-root {
           position: relative; min-height: 100dvh;
@@ -263,7 +275,7 @@ function PublicResultsPage() {
           border-radius: 10px; padding: 8px 36px 8px 14px;
           font-size: 13px; font-weight: 700; letter-spacing: 0.03em;
           color: #1a1a1a; cursor: pointer; outline: none;
-          font-family: 'Outfit', sans-serif;
+          font-family: 'Plus Jakarta Sans', sans-serif;
           box-shadow: 0 1px 4px rgba(0,0,0,0.06);
           transition: border-color 0.15s, box-shadow 0.15s;
         }
@@ -273,7 +285,7 @@ function PublicResultsPage() {
         .pr-select-icon { position: absolute; right: 12px; pointer-events: none; color: rgba(0,0,0,0.35); }
 
         .pr-region-tabs { display: flex; gap: 4px; background: rgba(0,0,0,0.05); padding: 3px; border-radius: 10px; }
-        .pr-region-tab { padding: 6px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; background: transparent; color: rgba(0,0,0,0.45); font-family: 'Outfit', sans-serif; transition: background 0.15s, color 0.15s; }
+        .pr-region-tab { padding: 6px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; background: transparent; color: rgba(0,0,0,0.45); font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.15s, color 0.15s; }
         .pr-region-tab--active { background: #fff; color: #B30000; box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-weight: 700; }
 
         .pr-hero { }
