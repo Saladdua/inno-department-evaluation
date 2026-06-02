@@ -49,16 +49,18 @@ export async function GET(req: Request) {
   const items = notifs ?? []
   if (items.length === 0) return NextResponse.json([])
 
-  // Fetch which of these notifications the current user has already read
+  // Fetch read/dismissed state for current user
   const { data: reads } = await supabase
     .from('notification_reads')
-    .select('notification_id')
+    .select('notification_id, dismissed')
     .eq('user_id', user.id)
     .in('notification_id', items.map(n => n.id))
 
-  const readSet = new Set((reads ?? []).map(r => r.notification_id))
+  const readSet      = new Set((reads ?? []).filter(r => !r.dismissed).map(r => r.notification_id))
+  const dismissedSet = new Set((reads ?? []).filter(r => r.dismissed).map(r => r.notification_id))
 
-  return NextResponse.json(items.map(n => ({ ...n, is_read: readSet.has(n.id) })))
+  const visible = items.filter(n => !dismissedSet.has(n.id))
+  return NextResponse.json(visible.map(n => ({ ...n, is_read: readSet.has(n.id) })))
 }
 
 // PATCH /api/notifications
@@ -98,6 +100,27 @@ export async function PATCH(req: Request) {
     .upsert(
       ids.map(id => ({ user_id: user.id, notification_id: id })),
       { onConflict: 'user_id,notification_id', ignoreDuplicates: true }
+    )
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
+
+// DELETE /api/notifications?id=xxx — dismiss a notification for the current user
+export async function DELETE(req: Request) {
+  const user = await getAuthUser(req)
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+
+  const supabase = createServiceClient()
+  const { error } = await supabase
+    .from('notification_reads')
+    .upsert(
+      { user_id: user.id, notification_id: id, dismissed: true },
+      { onConflict: 'user_id,notification_id' }
     )
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

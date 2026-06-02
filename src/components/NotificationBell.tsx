@@ -149,6 +149,12 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
   }
 
+  async function dismissNotification(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    setNotifications(prev => prev.filter(n => n.id !== id))
+    await fetch(`/api/notifications?id=${id}`, { method: 'DELETE' })
+  }
+
   function handleItemClick(n: Notification) {
     if (!n.is_read) markRead(n.id)
     const href = notifHref(n)
@@ -316,6 +322,13 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
                   </div>
                 )}
               </div>
+              <button
+                className="nb-dismiss"
+                onClick={e => dismissNotification(n.id, e)}
+                title="Xoá thông báo"
+              >
+                <X size={10} />
+              </button>
               {!n.is_read && <span className="nb-unread-dot" />}
             </div>
           )
@@ -388,6 +401,19 @@ export default function NotificationBell({ deptId, role }: { deptId: string | nu
           flex-shrink: 0; margin-top: 5px;
           box-shadow: 0 0 4px rgba(179,0,0,0.6);
         }
+
+        .nb-dismiss {
+          flex-shrink: 0; margin-top: 2px;
+          width: 18px; height: 18px; border-radius: 4px;
+          border: none; background: transparent; cursor: pointer;
+          color: rgba(255,255,255,0.2);
+          display: flex; align-items: center; justify-content: center;
+          transition: background 0.15s, color 0.15s;
+          padding: 0;
+        }
+        .nb-dismiss:hover { background: rgba(179,0,0,0.15); color: rgba(255,100,100,0.9); }
+        [data-theme="light"] .nb-dismiss { color: rgba(0,0,0,0.2); }
+        [data-theme="light"] .nb-dismiss:hover { background: rgba(179,0,0,0.1); color: #B30000; }
 
         .nb-report-wrap { margin-top: 6px; }
         .nb-report-done { font-size: 11px; color: #22c55e; font-style: italic; font-family: var(--font-sans), sans-serif; }
