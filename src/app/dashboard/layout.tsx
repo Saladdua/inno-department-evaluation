@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { signOut, useSession } from 'next-auth/react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   SlidersHorizontal,
   LayoutGrid,
@@ -19,6 +19,7 @@ import {
   Sun,
   Moon,
   Flag,
+  Menu,
 } from 'lucide-react'
 import { useTheme } from '@/components/providers'
 import NotificationBell from '@/components/NotificationBell'
@@ -211,6 +212,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { data: session } = useSession()
   const { theme, toggle } = useTheme()
 
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
   const gridRef     = useRef<HTMLCanvasElement>(null)
   const particleRef = useRef<HTMLCanvasElement>(null)
 
@@ -228,8 +231,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <canvas ref={gridRef}     className="cv-grid"     aria-hidden="true" />
       <canvas ref={particleRef} className="cv-particles" aria-hidden="true" />
 
+      {/* ── Mobile backdrop ── */}
+      {sidebarOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* ── Sidebar ── */}
-      <nav className="sidebar" aria-label="Điều hướng chính">
+      <nav className={`sidebar${sidebarOpen ? ' sidebar--open' : ''}`} aria-label="Điều hướng chính">
         <div className="sidebar-brand">
           {LOGO_URL ? (
             <img src={LOGO_URL} alt="Logo" className="sidebar-logo" />
@@ -262,6 +274,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   href={item.href}
                   className={`nav-item ${isActive ? 'nav-item--active' : ''}`}
                   aria-current={isActive ? 'page' : undefined}
+                  onClick={() => setSidebarOpen(false)}
                 >
                   <span className="nav-accent" aria-hidden="true" />
                   <span className="nav-icon"><Icon size={16} strokeWidth={1.75} /></span>
@@ -302,6 +315,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="main-area">
         <header className="topbar">
           <div className="topbar-title">
+            <button
+              className="hamburger"
+              onClick={() => setSidebarOpen(o => !o)}
+              aria-label={sidebarOpen ? 'Đóng menu' : 'Mở menu'}
+            >
+              <Menu size={18} strokeWidth={1.75} />
+            </button>
             {currentNav && (
               <>
                 <currentNav.icon size={18} strokeWidth={1.75} className="topbar-icon" />
@@ -495,6 +515,60 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         [data-theme="light"] .theme-toggle:hover { color: rgba(0,0,0,0.7); border-color: rgba(0,0,0,0.18); background: rgba(0,0,0,0.05); }
         [data-theme="light"] .cv-grid      { opacity: 0.35; }
         [data-theme="light"] .cv-particles { opacity: 0.4; }
+
+        /* ══════════════════════════════════
+           HAMBURGER & MOBILE DRAWER
+        ══════════════════════════════════ */
+        .hamburger {
+          display: none;
+          width: 34px; height: 34px; border-radius: 8px;
+          border: 1px solid rgba(255,255,255,0.08); background: transparent;
+          color: rgba(255,255,255,0.5); align-items: center; justify-content: center;
+          cursor: pointer; flex-shrink: 0;
+          transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .hamburger:hover { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.06); }
+        .hamburger:focus-visible { outline: 2px solid rgba(179,0,0,0.5); outline-offset: 2px; }
+        [data-theme="light"] .hamburger { border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .hamburger:hover { color: rgba(0,0,0,0.8); background: rgba(0,0,0,0.05); }
+
+        .sidebar-backdrop {
+          position: fixed; inset: 0; z-index: 99;
+          background: rgba(0,0,0,0.55);
+          backdrop-filter: blur(2px);
+          -webkit-backdrop-filter: blur(2px);
+          animation: backdropIn 0.2s ease both;
+        }
+        @keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* ── Mobile breakpoint ── */
+        @media (max-width: 768px) {
+          .hamburger { display: flex; }
+
+          .sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            z-index: 100;
+            transform: translateX(-100%);
+            transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.26s ease;
+            box-shadow: none;
+          }
+          .sidebar--open {
+            transform: translateX(0);
+            box-shadow: 4px 0 32px rgba(0,0,0,0.5);
+          }
+
+          .topbar { padding: 0 14px; height: 56px; }
+          .topbar-heading { font-size: 15px; }
+
+          .page-content { padding: 16px; }
+        }
+
+        @media (max-width: 480px) {
+          .topbar-heading { font-size: 13px; }
+          .page-content { padding: 12px; }
+          .topbar { gap: 6px; }
+        }
       `}</style>
     </div>
   )

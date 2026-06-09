@@ -1432,6 +1432,45 @@ const rsStyles = `
   .rs-modal-confirm:hover:not(:disabled) { background: #cc0000; }
   .rs-modal-confirm:disabled { opacity: 0.35; cursor: not-allowed; }
 
+  /* ── Mobile modal ── */
+  @media (max-width: 540px) {
+    .rs-modal-overlay { padding: 0; align-items: flex-end; }
+    .rs-modal {
+      max-width: 100%; border-radius: 18px 18px 0 0;
+      max-height: 88dvh; overflow-y: auto;
+    }
+  }
+
+  /* ── Mobile ── */
+  @media (max-width: 600px) {
+    .rs-header { margin-bottom: 20px; gap: 8px; }
+    .rs-header-left { gap: 6px; }
+    .rs-header-right { gap: 6px; }
+    .rs-filter-group { gap: 4px; }
+    .rs-period-select { font-size: 11px; padding: 4px 24px 4px 9px; }
+    .rs-dl-btn { padding: 4px 10px; font-size: 11px; }
+
+    .rs-podium { gap: 4px; }
+    .rs-pm-card { padding: 14px 8px 12px; gap: 2px; }
+    .rs-pm-rank-badge { width: 36px; height: 36px; font-size: 16px; margin-bottom: 6px; }
+    .rs-pm-code { font-size: 20px; }
+    .rs-pm-score { font-size: 24px; margin-top: 8px; }
+    .rs-pm-block { }
+
+    .rs-row-rank { width: 40px; font-size: 13px; }
+    .rs-row-mid { padding: 10px 10px 8px; gap: 6px; }
+    .rs-row-code { font-size: 13px; }
+    .rs-row-score-col { padding: 10px 12px 8px 10px; min-width: 58px; }
+    .rs-row-score { font-size: 17px; }
+    .rs-section-label { font-size: 10px; }
+  }
+
+  @media (max-width: 400px) {
+    .rs-pm-code { font-size: 17px; }
+    .rs-pm-score { font-size: 20px; }
+    .rs-pm-card { padding: 10px 5px 8px; }
+  }
+
   /* Light mode modal */
   [data-theme="light"] .rs-modal { background: #fff; border-color: rgba(0,0,0,0.12); box-shadow: 0 24px 64px rgba(0,0,0,0.18); }
   [data-theme="light"] .rs-modal-header { border-bottom-color: rgba(0,0,0,0.08); }
