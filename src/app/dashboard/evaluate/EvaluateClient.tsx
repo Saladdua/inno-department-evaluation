@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
-import { CheckCircle2, Clock, Circle, ChevronRight, Send, Pencil } from 'lucide-react'
+import { CheckCircle2, Clock, Circle, ChevronRight, ChevronLeft, Send, Pencil, Menu } from 'lucide-react'
 
 export interface Criterion {
   id: string
@@ -131,6 +131,8 @@ export default function EvaluateClient({
     return map
   }, [autoScores])
 
+  const [mobileShowList, setMobileShowList] = useState(true)
+
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>(() => {
     if (canManageAll && role === 'super_admin') {
       const northFirst = evaluatorIds.find(id => {
@@ -215,6 +217,7 @@ export default function EvaluateClient({
     setSaveStatus('idle')
     const ev = getEval(selectedEvaluatorId, targetId)
     setIsEditingMode(ev?.status !== 'submitted')
+    setMobileShowList(false)
   }
 
   function handleScoreChange(criteriaId: string, field: 'raw_score' | 'note', value: string) {
@@ -360,7 +363,7 @@ export default function EvaluateClient({
   const submittedCount = assignments.filter(a => getEval(a.evaluator_id, a.target_id)?.status === 'submitted').length
 
   return (
-    <div className="ev-root">
+    <div className={`ev-root${mobileShowList ? ' ev-root--list' : ' ev-root--form'}`}>
 
       {/* ── Left panel ── */}
       <div className="ev-left">
@@ -454,6 +457,14 @@ export default function EvaluateClient({
               style={{ width: assignments.length > 0 ? `${(submittedCount / assignments.length) * 100}%` : '0%' }}
             />
           </div>
+          {selectedTargetId && (
+            <button
+              className="ev-mobile-close-list"
+              onClick={() => setMobileShowList(false)}
+            >
+              Xem phiếu đang chọn <ChevronRight size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -463,12 +474,22 @@ export default function EvaluateClient({
           <div className="ev-placeholder">
             <ChevronRight size={20} className="ev-ph-arrow" />
             <span>Chọn một phòng ban bên trái để bắt đầu đánh giá</span>
+            <button className="ev-mobile-open-list" onClick={() => setMobileShowList(true)}>
+              <Menu size={14} /> Chọn phòng ban
+            </button>
           </div>
         ) : (
           <div className="ev-form">
 
             {/* Form header */}
             <div className="ev-form-header">
+              <button
+                className="ev-back-btn"
+                onClick={() => setMobileShowList(true)}
+                aria-label="Quay lại danh sách"
+              >
+                <ChevronLeft size={15} /> Danh sách
+              </button>
               <div className="ev-form-route">
                 <span className="ev-from">
                   {isLeader ? 'BLĐ' : getDeptLabel(depts, selectedEvaluatorId)}
@@ -1047,6 +1068,68 @@ export default function EvaluateClient({
         [data-theme="light"] .ev-save-msg { color: rgba(0,0,0,0.4); }
         [data-theme="light"] .ev-btn--ghost { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.6); }
         [data-theme="light"] .ev-read-only-msg { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); color: rgba(0,0,0,0.4); }
+
+        /* ── Back / open-list buttons (hidden on desktop) ── */
+        .ev-back-btn, .ev-mobile-open-list, .ev-mobile-close-list { display: none; }
+
+        /* ── Mobile layout ── */
+        @media (max-width: 768px) {
+          .ev-root { flex-direction: column; height: auto; }
+
+          /* Left panel: full width, shown/hidden via root class */
+          .ev-left { width: 100%; border-radius: 12px; max-height: none; }
+          .ev-right { margin-left: 0; margin-top: 12px; min-height: 0; }
+
+          /* When showing the list, hide the right panel */
+          .ev-root--list .ev-right { display: none; }
+          /* When showing the form, hide the left panel */
+          .ev-root--form .ev-left { display: none; }
+          /* Also hide right margin when form is showing */
+          .ev-root--form .ev-right { margin-top: 0; }
+
+          /* Back button inside form header */
+          .ev-back-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 5px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5);
+            font-size: 12px; font-weight: 600; cursor: pointer;
+            font-family: var(--font-sans), sans-serif;
+            transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
+          }
+          .ev-back-btn:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.8); }
+          [data-theme="light"] .ev-back-btn { border-color: rgba(0,0,0,0.1); background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.55); }
+          [data-theme="light"] .ev-back-btn:hover { background: rgba(0,0,0,0.08); color: rgba(0,0,0,0.8); }
+
+          /* "Xem phiếu" button at list footer */
+          .ev-mobile-close-list {
+            display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+            width: 100%; margin-top: 8px;
+            padding: 8px 12px; border-radius: 8px;
+            border: 1px solid rgba(179,0,0,0.25); background: rgba(179,0,0,0.08);
+            color: rgba(255,130,130,0.9); font-size: 12.5px; font-weight: 600;
+            cursor: pointer; font-family: var(--font-sans), sans-serif;
+            transition: background 0.15s;
+          }
+          .ev-mobile-close-list:hover { background: rgba(179,0,0,0.14); }
+          [data-theme="light"] .ev-mobile-close-list { border-color: rgba(179,0,0,0.2); background: rgba(179,0,0,0.06); color: #B30000; }
+
+          /* "Chọn phòng ban" button in placeholder */
+          .ev-mobile-open-list {
+            display: inline-flex; align-items: center; gap: 6px;
+            margin-top: 8px; padding: 9px 18px; border-radius: 9px;
+            border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.65); font-size: 13px; font-weight: 600;
+            cursor: pointer; font-family: var(--font-sans), sans-serif;
+            transition: background 0.15s, color 0.15s;
+          }
+          .ev-mobile-open-list:hover { background: rgba(255,255,255,0.1); color: #fff; }
+          [data-theme="light"] .ev-mobile-open-list { border-color: rgba(0,0,0,0.12); background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.6); }
+
+          .ev-form-header { flex-wrap: wrap; gap: 8px; }
+          .ev-actions { flex-wrap: wrap; }
+          .ev-btn { flex: 1; justify-content: center; }
+        }
       `}</style>
     </div>
   )

@@ -1207,6 +1207,32 @@ export default function MatrixClient({
         [data-theme="light"] .mx-assign-arrow { color: rgba(179,0,0,0.45); }
         [data-theme="light"] .mx-assign-tag { background: rgba(179,0,0,0.08); color: #B30000; border-color: rgba(179,0,0,0.18); }
         [data-theme="light"] .mx-assign-empty { color: rgba(0,0,0,0.3); }
+
+        /* ── Mobile ── */
+        @media (max-width: 768px) {
+          .mx-body--split { flex-direction: column; }
+          .mx-chart-panel, .mx-assign-panel { max-height: none; }
+          .mx-summary-panel { max-height: none; padding: 16px; }
+
+          /* Stick the commit bar to bottom of screen so it's always reachable */
+          .mx-commit-bar {
+            position: sticky;
+            bottom: 0;
+            background: #0e0e0e;
+            margin: 0 -16px -16px;
+            padding: 12px 16px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            z-index: 10;
+          }
+          [data-theme="light"] .mx-commit-bar {
+            background: #fff;
+            border-top-color: rgba(0,0,0,0.08);
+          }
+
+          .mx-header-left { gap: 8px; }
+          .mx-header-right { flex-wrap: wrap; gap: 6px; }
+          .mx-btn { padding: 5px 10px; font-size: 11.5px; }
+        }
       `}</style>
     </div>
   )
