@@ -2,7 +2,15 @@
 
 import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Table2, Lock, Upload, X, Copy, Check } from "lucide-react";
+import {
+  ChevronDown,
+  Table2,
+  Lock,
+  Upload,
+  X,
+  Copy,
+  Check,
+} from "lucide-react";
 
 export interface CriterionInfo {
   id: string;
@@ -898,7 +906,15 @@ export default function ResultsClient({
                 onClick={handleCopyLink}
                 title="Sao chép link kết quả công khai"
               >
-                {copyDone ? <><Check size={13} /> Đã sao chép!</> : <><Copy size={13} /> Sao chép link</>}
+                {copyDone ? (
+                  <>
+                    <Check size={13} /> Đã sao chép!
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} /> Sao chép link
+                  </>
+                )}
               </button>
             )}
             {canManageAll && isSuperAdmin && periodId !== null && (
@@ -966,7 +982,7 @@ export default function ResultsClient({
                       }}
                     >
                       <span className="rs-pm-num" style={{ color }}>
-                        {place === 1 ? '🥇' : place === 2 ? '🥈' : '🥉'}
+                        {place === 1 ? "🥇" : place === 2 ? "🥈" : "🥉"}
                       </span>
                     </div>
                   </div>

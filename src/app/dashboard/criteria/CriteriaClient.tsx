@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect, useRef } from 'react'
+import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { setSelectedPeriod } from '@/app/actions/period'
 import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus, Trash2 } from 'lucide-react'
@@ -40,24 +40,38 @@ interface ParsedRow {
 }
 
 function parseCSV(text: string): string[][] {
-  return text.split(/\r?\n/).map(line => {
-    const cells: string[] = []
-    let cur = ''
-    let inQuote = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
-      if (ch === '"') {
-        if (inQuote && line[i + 1] === '"') { cur += '"'; i++ }
-        else inQuote = !inQuote
-      } else if (ch === ',' && !inQuote) {
-        cells.push(cur); cur = ''
-      } else {
-        cur += ch
-      }
+  const rows: string[][] = []
+  let cells: string[] = []
+  let cur = ''
+  let inQuote = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    const next = text[i + 1]
+    if (inQuote) {
+      if (ch === '"' && next === '"') { cur += '"'; i++ }
+      else if (ch === '"') { inQuote = false }
+      else { cur += ch }
+    } else {
+      if (ch === '"') { inQuote = true }
+      else if (ch === ',') { cells.push(cur); cur = '' }
+      else if (ch === '\r' && next === '\n') { cells.push(cur); cur = ''; rows.push(cells); cells = []; i++ }
+      else if (ch === '\n' || ch === '\r') { cells.push(cur); cur = ''; rows.push(cells); cells = [] }
+      else { cur += ch }
     }
-    cells.push(cur)
-    return cells
-  }).filter(row => row.some(c => c.trim()))
+  }
+  cells.push(cur)
+  if (cells.some(c => c.trim())) rows.push(cells)
+  return rows.filter(row => row.some(c => c.trim()))
+}
+
+const SOURCE_KEY_MAP: Record<string, string> = {
+  'noi_quy': 'noi_quy', 'tuân thủ nội quy': 'noi_quy',
+  'timesheets': 'timesheets',
+  'dao_tao': 'dao_tao', 'đào tạo': 'dao_tao',
+  'marketing': 'marketing',
+  'google_sheets': 'google_sheets', 'google sheets': 'google_sheets',
+  '1office': '1office',
+  'gitiho': 'gitiho',
 }
 
 function parseCriteriaCSV(text: string, quarter: number): ParsedRow[] {
@@ -66,27 +80,40 @@ function parseCriteriaCSV(text: string, quarter: number): ParsedRow[] {
   const [header, ...data] = rows
   const hdr = header.map(h => h.trim())
   // Support new single "Hệ số" column and old "HS QUÝ N" multi-column format
-  const hsCol   = hdr.findIndex(h => h === 'Hệ số')
-  const qCol    = hdr.findIndex(h => h === `HS QUÝ ${quarter}`)
-  const q1Col   = hdr.findIndex(h => h === 'HS QUÝ 1')
+  const hsCol     = hdr.findIndex(h => h === 'Hệ số')
+  const qCol      = hdr.findIndex(h => h === `HS QUÝ ${quarter}`)
+  const q1Col     = hdr.findIndex(h => h === 'HS QUÝ 1')
   const weightCol = hsCol >= 0 ? hsCol : qCol >= 0 ? qCol : q1Col
   const notesCol  = hdr.findIndex(h => h === 'Ghi chú')
+  const sourceCol = hdr.findIndex(h => h === 'Nguồn / Đánh giá' || h === 'Nguồn')
   return data
-    .filter(row => row[0]?.trim())
+    .filter(row => { const v = row[0]?.trim(); return v && !v.startsWith('#') })
     .map(row => {
-      const tieuChi   = row[0]?.trim() ?? ''
-      const hinhThuc  = row[1]?.trim() ?? ''
-      const rawWeight = weightCol >= 0 ? row[weightCol]?.trim() ?? '' : ''
-      const rawNotes  = notesCol  >= 0 ? row[notesCol]?.trim()  ?? '' : ''
-      const match     = tieuChi.match(/^(TC\d+):\s*(.+)/)
-      const isAuto    = hinhThuc.toLowerCase().includes('dữ liệu từ báo cáo')
+      const tieuChi       = row[0]?.trim() ?? ''
+      const hinhThuc      = row[1]?.trim() ?? ''
+      const rawSource     = sourceCol >= 0 ? row[sourceCol]?.trim() ?? '' : ''
+      const rawWeight     = weightCol >= 0 ? row[weightCol]?.trim() ?? '' : ''
+      const rawNotes      = notesCol  >= 0 ? row[notesCol]?.trim()  ?? '' : ''
+      const match         = tieuChi.match(/^(TC\d+):\s*(.+)/)
+      const hinhThucLower = hinhThuc.toLowerCase()
+      const isAuto        = hinhThucLower.includes('tự động') || hinhThucLower.includes('dữ liệu từ báo cáo')
+      const sourceLower   = rawSource.toLowerCase()
+
+      let autoSource: string | null = null
+      if (isAuto) {
+        autoSource = SOURCE_KEY_MAP[sourceLower] ?? (rawSource || 'google_sheets')
+      } else if (sourceLower.includes('ban lãnh đạo') || sourceLower === 'blđ' || sourceLower === 'leader') {
+        autoSource = 'leader'
+      }
+      // 'đánh giá chéo' or blank → autoSource stays null
+
       return {
         code:        match ? match[1] : null,
         name:        match ? match[2].trim() : tieuChi,
         notes:       rawNotes || null,
         weight:      parseFloat(rawWeight) || 1,
         input_type:  isAuto ? 'auto' as const : 'manual' as const,
-        auto_source: isAuto ? 'google_sheets' : null,
+        auto_source: autoSource,
       }
     })
 }
@@ -245,6 +272,43 @@ function CriteriaTable({
   const [draftAutoSource, setDraftAutoSource] = useState('')
   const [isPending, startTransition] = useTransition()
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const selectAllRef = useRef<HTMLInputElement>(null)
+
+  const allSelected = criteria.length > 0 && criteria.every(c => selectedIds.has(c.id))
+  const someSelected = selectedIds.size > 0
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected && !allSelected
+    }
+  }, [someSelected, allSelected])
+
+  // Clear selection when criteria list changes (e.g. after period switch)
+  useEffect(() => { setSelectedIds(new Set()) }, [criteria])
+
+  const toggleAll = useCallback(() => {
+    setSelectedIds(allSelected ? new Set() : new Set(criteria.map(c => c.id)))
+  }, [allSelected, criteria])
+
+  const toggleOne = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  async function handleBulkDelete() {
+    setIsBulkDeleting(true)
+    await Promise.all([...selectedIds].map(id => onDeleteCriterion(id)))
+    setSelectedIds(new Set())
+    setBulkDeleteConfirm(false)
+    setIsBulkDeleting(false)
+  }
+
   function startEdit(c: Criterion) {
     setEditingId(c.id)
     setDraftCode(c.code ?? '')
@@ -276,11 +340,17 @@ function CriteriaTable({
 
   function handleExportTemplate() {
     const lines = [
-      'DS TIÊU CHÍ & HỆ SỐ,Hình thức,Hệ số,Ghi chú',
-      'TC01: Chất lượng và hiệu quả công việc,Thủ công,1.5,',
-      'TC02: Tiến độ hoàn thành đúng hạn,Thủ công,1.0,',
-      'TC03: Ý thức và thái độ làm việc,Thủ công,1.0,Bao gồm điểm danh và thái độ',
-      'TC04: Kết quả từ hệ thống báo cáo,Dữ liệu từ báo cáo hệ thống,2.0,',
+      'DS TIÊU CHÍ & HỆ SỐ,Hình thức,Nguồn / Đánh giá,Hệ số,Ghi chú',
+      'TC01: Chất lượng và hiệu quả công việc,Thủ công,Đánh giá chéo,1.5,',
+      'TC02: Tiến độ hoàn thành đúng hạn,Thủ công,Đánh giá chéo,1.0,',
+      'TC03: Năng lực lãnh đạo và định hướng,Thủ công,Ban lãnh đạo,1.0,Được BLĐ đánh giá trực tiếp',
+      'TC04: Tuân thủ nội quy,Tự động,noi_quy,1.0,',
+      'TC05: Chấm công và giờ làm việc,Tự động,timesheets,1.0,',
+      'TC06: Đào tạo và phát triển,Tự động,dao_tao,1.0,',
+      'TC07: Marketing và truyền thông,Tự động,marketing,1.0,',
+      'TC08: Báo cáo Google Sheets,Tự động,google_sheets,2.0,Nhập từ báo cáo hệ thống',
+      'TC09: Hoạt động 1Office,Tự động,1office,1.0,',
+      'TC10: Kết quả học tập Gitiho,Tự động,gitiho,1.0,',
     ]
     const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -303,6 +373,23 @@ function CriteriaTable({
           <span className="ct-total">
             Tổng hệ số: <strong>{totalWeight.toFixed(2)}</strong>
           </span>
+          {canEdit && someSelected && (
+            bulkDeleteConfirm ? (
+              <div className="ct-bulk-confirm">
+                <span className="ct-del-warn">Xoá {selectedIds.size} tiêu chí?</span>
+                <button className="ct-icon-btn ct-icon-btn--del-yes ct-bulk-yes" disabled={isBulkDeleting} onClick={handleBulkDelete}>
+                  <Check size={12} /> {isBulkDeleting ? 'Đang xoá…' : 'Xoá'}
+                </button>
+                <button className="ct-icon-btn ct-icon-btn--cancel" disabled={isBulkDeleting} onClick={() => setBulkDeleteConfirm(false)}>
+                  <X size={12} />
+                </button>
+              </div>
+            ) : (
+              <button className="ct-bulk-del-btn" onClick={() => setBulkDeleteConfirm(true)}>
+                <Trash2 size={13} /> Xoá {selectedIds.size} đã chọn
+              </button>
+            )
+          )}
           {canEdit && (
             <button className="ct-template-btn" onClick={handleExportTemplate}>
               <FileDown size={13} /> Tải mẫu CSV
@@ -331,6 +418,11 @@ function CriteriaTable({
           <table className="ct-table">
             <thead>
               <tr>
+                {canEdit && (
+                  <th className="ct-th ct-th--check">
+                    <input ref={selectAllRef} type="checkbox" className="ct-checkbox" checked={allSelected} onChange={toggleAll} />
+                  </th>
+                )}
                 <th className="ct-th ct-th--stt">STT</th>
                 <th className="ct-th ct-th--code">Mã</th>
                 <th className="ct-th ct-th--name">Tên tiêu chí</th>
@@ -342,7 +434,12 @@ function CriteriaTable({
             </thead>
             <tbody>
               {criteria.map((c, i) => (
-                <tr key={c.id} className={`ct-row${editingId === c.id ? ' ct-row--editing' : ''}`} style={{ animationDelay: editingId === c.id ? '0ms' : `${i * 30}ms` }}>
+                <tr key={c.id} className={`ct-row${editingId === c.id ? ' ct-row--editing' : ''}${selectedIds.has(c.id) ? ' ct-row--selected' : ''}`} style={{ animationDelay: editingId === c.id ? '0ms' : `${i * 30}ms` }}>
+                  {canEdit && (
+                    <td className="ct-td ct-td--check">
+                      <input type="checkbox" className="ct-checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleOne(c.id)} />
+                    </td>
+                  )}
                   <td className="ct-td ct-td--stt">{i + 1}</td>
                   <td className="ct-td ct-td--code">
                     {editingId === c.id ? (
@@ -1429,6 +1526,36 @@ export default function CriteriaClient({
         .ct-icon-btn--del-yes:disabled { opacity: 0.5; cursor: not-allowed; }
         .ct-row-actions--confirm { gap: 6px; }
         .ct-del-warn { font-size: 11px; color: rgba(255,120,120,0.75); white-space: nowrap; }
+
+        /* ── Multi-select ── */
+        .ct-th--check, .ct-td--check { width: 32px; padding: 0 4px 0 14px; }
+        .ct-checkbox {
+          width: 15px; height: 15px; border-radius: 4px; cursor: pointer;
+          accent-color: #B30000;
+        }
+        .ct-row--selected { background: rgba(179,0,0,0.06) !important; }
+        .ct-row--selected:hover { background: rgba(179,0,0,0.1) !important; }
+        .ct-bulk-del-btn {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 6px 11px; border-radius: 7px;
+          background: rgba(220,30,30,0.12); border: 1px solid rgba(220,30,30,0.25);
+          color: rgba(255,100,100,0.9); font-size: 12px; cursor: pointer;
+          font-family: var(--font-sans), sans-serif;
+          transition: background 0.15s, transform 0.15s;
+        }
+        .ct-bulk-del-btn:hover { background: rgba(220,30,30,0.22); transform: translateY(-1px); }
+        .ct-bulk-confirm {
+          display: inline-flex; align-items: center; gap: 7px;
+          padding: 4px 10px; border-radius: 8px;
+          background: rgba(220,30,30,0.08); border: 1px solid rgba(220,30,30,0.2);
+        }
+        .ct-bulk-yes {
+          display: inline-flex; align-items: center; gap: 4px;
+          padding: 3px 10px; height: auto; width: auto; font-size: 12px;
+          border-radius: 6px;
+        }
+        .ct-bulk-yes:disabled { opacity: 0.5; cursor: not-allowed; }
+
         .ct-type-badge {
           display: inline-flex; align-items: center; gap: 4px;
           padding: 2px 8px; border-radius: 20px; font-size: 11px;
