@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { setSelectedPeriod } from '@/app/actions/period'
 import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus, Trash2 } from 'lucide-react'
 
@@ -1016,7 +1016,6 @@ export default function CriteriaClient({
   initialCriteria: Criterion[]
   role: Role
 }) {
-  const router      = useRouter()
   const searchParams = useSearchParams()
   const [periods, setPeriods] = useState<Period[]>(initialPeriods)
   const [period, setPeriod] = useState<Period | null>(initialPeriod)
@@ -1149,12 +1148,7 @@ export default function CriteriaClient({
   }
 
   function handlePeriodCreated(p: Period) {
-    setPeriods(prev => [p, ...prev])
-    switchPeriod(p.id, p)
-    // Purge router cache so other pages (matrix, evaluate, status…) re-fetch
-    // and pick up the new period. No router.push here — switchPeriod already
-    // updated the URL via replaceState, avoiding any race with refresh().
-    router.refresh()
+    window.location.href = `/dashboard/criteria?periodId=${p.id}`
   }
 
   async function handlePeriodDelete() {
@@ -1168,17 +1162,12 @@ export default function CriteriaClient({
       return
     }
     const newPeriods = periods.filter(p => p.id !== period.id)
-    setPeriods(newPeriods)
-    setShowDeleteConfirm(false)
     const next = newPeriods[0] ?? null
     if (next) {
-      switchPeriod(next.id, next)
+      window.location.href = `/dashboard/criteria?periodId=${next.id}`
     } else {
-      setPeriod(null)
-      setCriteria([])
-      window.history.replaceState({}, '', '/dashboard/criteria')
+      window.location.href = '/dashboard/criteria'
     }
-    router.refresh()
   }
 
   return (
