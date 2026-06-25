@@ -114,11 +114,6 @@ const STATUS_LABEL: Record<Status, string> = {
   none:        '—',
 }
 
-const PERIOD_STATUS_LABEL: Record<string, string> = {
-  open:   'Đang mở',
-  closed: 'Đã tổng kết',
-  draft:  'Nháp',
-}
 
 interface ArchiveData {
   period: Record<string, unknown>
@@ -480,10 +475,6 @@ export default function StatusClient({
           })()}
 
           <span className="st-period-label">{periodLabel}</span>
-
-          <span className={`st-period-status ${localStatus === 'open' ? 'st-period-status--open' : localStatus === 'closed' ? 'st-period-status--closed' : ''}`}>
-            {PERIOD_STATUS_LABEL[localStatus] ?? localStatus}
-          </span>
 
           {isOverdue && (
             <span className="st-overdue-badge">Quá hạn</span>
@@ -909,18 +900,6 @@ export default function StatusClient({
           text-transform: uppercase; color: rgba(255,255,255,0.7);
         }
 
-        .st-period-status {
-          font-size: 11px; padding: 2px 8px; border-radius: 20px;
-          background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-          color: rgba(255,255,255,0.3); font-style: italic;
-        }
-        .st-period-status--open {
-          background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.2); color: rgba(74,222,128,0.8);
-        }
-        .st-period-status--closed {
-          background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.3);
-        }
-
         /* Overdue badge */
         .st-overdue-badge {
           display: inline-flex; align-items: center; gap: 4px;
@@ -1147,7 +1126,6 @@ export default function StatusClient({
 
         /* ── Light mode ── */
         [data-theme="light"] .st-period-label { color: rgba(0,0,0,0.7); }
-        [data-theme="light"] .st-period-status { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.4); }
         [data-theme="light"] .st-finalized-badge { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.35); }
         [data-theme="light"] .st-progress-track { background: rgba(0,0,0,0.07); }
         [data-theme="light"] .st-card { background: #fff; border-color: rgba(0,0,0,0.08); }
