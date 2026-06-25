@@ -58,7 +58,7 @@ BEGIN
     (d_ss2,  'SS2',  'SS2'),
     (d_ss3,  'SS3',  'SS3'),
     (d_ss5,  'SS5',  'SS5'),
-    (d_mep,  'MEP',  'MEP'),
+    (d_mep,  'MEP1', 'MEP1'),
     (d_qs,   'QS',   'QS');
 
   -- ══════════════════════════════════════════════════════════
@@ -82,7 +82,7 @@ BEGIN
     ('SS2',  'SS2@innojsc.com',     'department', 'Inno@2025', d_ss2),
     ('SS3',  'SS3@innojsc.com',     'department', 'Inno@2025', d_ss3),
     ('SS5',  'ss5@innojsc.com',     'department', 'Inno@2025', d_ss5),
-    ('MEP',  'MEP1@innojsc.com',    'department', 'Inno@2025', d_mep),
+    ('MEP1', 'MEP1@innojsc.com',    'department', 'Inno@2025', d_mep),
     ('QS',   'leader12@innojsc.com','department', 'Inno@2025', d_qs);
 
   -- Ban lãnh đạo (no department_id)
@@ -136,7 +136,7 @@ BEGIN
   -- ══════════════════════════════════════════════════════════
   INSERT INTO public.evaluation_matrix (period_id, evaluator_id, target_id) VALUES
 
-  -- AS1 selects: AS8, AS11, LS1, SS1, SS2, SS3, SS5, MEP
+  -- AS1 selects: AS8, AS11, LS1, SS1, SS2, SS3, SS5, MEP1
     (p_id, d_as1,  d_as8),  (p_id, d_as8,  d_as1),
     (p_id, d_as1,  d_as11), (p_id, d_as11, d_as1),
     (p_id, d_as1,  d_ls1),  (p_id, d_ls1,  d_as1),
@@ -146,7 +146,7 @@ BEGIN
     (p_id, d_as1,  d_ss5),  (p_id, d_ss5,  d_as1),
     (p_id, d_as1,  d_mep),  (p_id, d_mep,  d_as1),
 
-  -- AS3 selects: AS9, AS11, LS1, SS3, MEP, QS
+  -- AS3 selects: AS9, AS11, LS1, SS3, MEP1, QS
     (p_id, d_as3,  d_as9),  (p_id, d_as9,  d_as3),
     (p_id, d_as3,  d_as11), (p_id, d_as11, d_as3),
     (p_id, d_as3,  d_ls1),  (p_id, d_ls1,  d_as3),
@@ -154,7 +154,7 @@ BEGIN
     (p_id, d_as3,  d_mep),  (p_id, d_mep,  d_as3),
     (p_id, d_as3,  d_qs),   (p_id, d_qs,   d_as3),
 
-  -- AS4 selects: AS9, AS11, LS1, BIM1, SS2, SS3, MEP
+  -- AS4 selects: AS9, AS11, LS1, BIM1, SS2, SS3, MEP11
     (p_id, d_as4,  d_as9),  (p_id, d_as9,  d_as4),
     (p_id, d_as4,  d_as11), (p_id, d_as11, d_as4),
     (p_id, d_as4,  d_ls1),  (p_id, d_ls1,  d_as4),
@@ -163,7 +163,7 @@ BEGIN
     (p_id, d_as4,  d_ss3),  (p_id, d_ss3,  d_as4),
     (p_id, d_as4,  d_mep),  (p_id, d_mep,  d_as4),
 
-  -- AS8 selects: AS10, LS1, SS2, SS5, MEP, QS
+  -- AS8 selects: AS10, LS1, SS2, SS5, MEP1, QS
     (p_id, d_as8,  d_as10), (p_id, d_as10, d_as8),
     (p_id, d_as8,  d_ls1),  (p_id, d_ls1,  d_as8),
     (p_id, d_as8,  d_ss2),  (p_id, d_ss2,  d_as8),
@@ -171,14 +171,14 @@ BEGIN
     (p_id, d_as8,  d_mep),  (p_id, d_mep,  d_as8),
     (p_id, d_as8,  d_qs),   (p_id, d_qs,   d_as8),
 
-  -- AS9 selects: LS1, BIM1, SS2, SS3, MEP
+  -- AS9 selects: LS1, BIM1, SS2, SS3, MEP1
     (p_id, d_as9,  d_ls1),  (p_id, d_ls1,  d_as9),
     (p_id, d_as9,  d_bim1), (p_id, d_bim1, d_as9),
     (p_id, d_as9,  d_ss2),  (p_id, d_ss2,  d_as9),
     (p_id, d_as9,  d_ss3),  (p_id, d_ss3,  d_as9),
     (p_id, d_as9,  d_mep),  (p_id, d_mep,  d_as9),
 
-  -- AS10 selects: LS1, SS2, SS3, SS5, MEP, QS
+  -- AS10 selects: LS1, SS2, SS3, SS5, MEP1, QS
     (p_id, d_as10, d_ls1),  (p_id, d_ls1,  d_as10),
     (p_id, d_as10, d_ss2),  (p_id, d_ss2,  d_as10),
     (p_id, d_as10, d_ss3),  (p_id, d_ss3,  d_as10),
@@ -186,7 +186,7 @@ BEGIN
     (p_id, d_as10, d_mep),  (p_id, d_mep,  d_as10),
     (p_id, d_as10, d_qs),   (p_id, d_qs,   d_as10),
 
-  -- AS11 selects: LS1, SS3, MEP, QS
+  -- AS11 selects: LS1, SS3, MEP1, QS
     (p_id, d_as11, d_ls1),  (p_id, d_ls1,  d_as11),
     (p_id, d_as11, d_ss3),  (p_id, d_ss3,  d_as11),
     (p_id, d_as11, d_mep),  (p_id, d_mep,  d_as11),
@@ -198,7 +198,7 @@ BEGIN
     (p_id, d_ls1,  d_ss3),  (p_id, d_ss3,  d_ls1),
     (p_id, d_ls1,  d_qs),   (p_id, d_qs,   d_ls1),
 
-  -- BIM1 selects: SS1, SS2, SS3, MEP
+  -- BIM1 selects: SS1, SS2, SS3, MEP1
     (p_id, d_bim1, d_ss1),  (p_id, d_ss1,  d_bim1),
     (p_id, d_bim1, d_ss2),  (p_id, d_ss2,  d_bim1),
     (p_id, d_bim1, d_ss3),  (p_id, d_ss3,  d_bim1),
@@ -209,22 +209,22 @@ BEGIN
     (p_id, d_ss1,  d_ss3),  (p_id, d_ss3,  d_ss1),
     (p_id, d_ss1,  d_ss5),  (p_id, d_ss5,  d_ss1),
 
-  -- SS2 selects: SS3, SS5, MEP, QS
+  -- SS2 selects: SS3, SS5, MEP1, QS
     (p_id, d_ss2,  d_ss3),  (p_id, d_ss3,  d_ss2),
     (p_id, d_ss2,  d_ss5),  (p_id, d_ss5,  d_ss2),
     (p_id, d_ss2,  d_mep),  (p_id, d_mep,  d_ss2),
     (p_id, d_ss2,  d_qs),   (p_id, d_qs,   d_ss2),
 
-  -- SS3 selects: SS5, MEP, QS
+  -- SS3 selects: SS5, MEP1, QS
     (p_id, d_ss3,  d_ss5),  (p_id, d_ss5,  d_ss3),
     (p_id, d_ss3,  d_mep),  (p_id, d_mep,  d_ss3),
     (p_id, d_ss3,  d_qs),   (p_id, d_qs,   d_ss3),
 
-  -- SS5 selects: MEP, QS
+  -- SS5 selects: MEP1, QS
     (p_id, d_ss5,  d_mep),  (p_id, d_mep,  d_ss5),
     (p_id, d_ss5,  d_qs),   (p_id, d_qs,   d_ss5),
 
-  -- MEP selects: QS
+  -- MEP1 selects: QS
     (p_id, d_mep,  d_qs),   (p_id, d_qs,   d_mep);
 
 END $$;

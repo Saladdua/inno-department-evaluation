@@ -75,8 +75,8 @@ function normaliseCode(s: string) {
 
 /* Match a raw code string against the departments list.
    Two-pass: exact normaliseCode match first, then if the code ends in "1"
-   (e.g. MEP01 → mep1) retry without the trailing "1" (→ mep) so that
-   codes like MEP01 match MEP. Codes ending in 2+ (MEP2) are unaffected. */
+   (e.g. MEP01 → mep1) retry without the trailing "1" as a fallback.
+   Codes ending in 2+ (MEP2) are unaffected. */
 function matchDeptByCode(rawCode: string, departments: Department[]): Department | undefined {
   const nc = normaliseCode(rawCode)
   const exact = departments.find(d => normaliseCode(d.code) === nc || normalise(d.name) === normalise(rawCode))
@@ -100,6 +100,8 @@ function stripDeptPrefix(s: string) {
    that the generic matching cannot resolve automatically.
    Alias strings are matched with normalise() so diacritics / spaces are ignored. */
 const DEPT_ALIASES: Array<{ aliases: string[]; code: string }> = [
+  // ── Miền Bắc departments ─────────────────────────────────
+  { code: 'MEP1', aliases: ['mep', 'mep-1', 'mep_1', 'mep 1', 'mep1bn', 'mep bac'] },
   // ── Miền Nam departments ──────────────────────────────────
   { code: 'AS5',  aliases: ['as-5', 'as_5', 'as 5', 'as5mn', 'as nam 5', 'as mien nam 5', 'as5 mien nam'] },
   { code: 'AS6',  aliases: ['as-6', 'as_6', 'as 6', 'as6mn', 'as nam 6', 'as mien nam 6', 'as6 mien nam'] },
