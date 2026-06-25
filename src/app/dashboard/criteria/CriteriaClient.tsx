@@ -1,133 +1,180 @@
-'use client'
+"use client";
 
-import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { setSelectedPeriod } from '@/app/actions/period'
-import { Pencil, Check, X, Plus, RefreshCw, Zap, Hand, Upload, FileDown, ChevronDown, CalendarPlus, Trash2 } from 'lucide-react'
+import { useState, useTransition, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
+import { setSelectedPeriod } from "@/app/actions/period";
+import {
+  Pencil,
+  Check,
+  X,
+  Plus,
+  RefreshCw,
+  Zap,
+  Hand,
+  Upload,
+  FileDown,
+  ChevronDown,
+  CalendarPlus,
+  Trash2,
+} from "lucide-react";
 
 /* ── Types ─────────────────────────────────────────── */
 export interface Period {
-  id: string
-  quarter: number
-  year: number
-  start_date: string
-  end_date:   string
-  status: 'draft' | 'open' | 'closed'
+  id: string;
+  quarter: number;
+  year: number;
+  start_date: string;
+  end_date: string;
+  status: "draft" | "open" | "closed";
 }
 
 export interface Criterion {
-  id: string
-  period_id: string
-  code:          string | null
-  name:          string
-  notes:         string | null
-  weight:        number
-  input_type:    'manual' | 'auto'
-  auto_source:   string | null
-  display_order: number
-  region:        string
+  id: string;
+  period_id: string;
+  code: string | null;
+  name: string;
+  notes: string | null;
+  weight: number;
+  input_type: "manual" | "auto";
+  auto_source: string | null;
+  display_order: number;
+  region: string;
 }
 
-type Role = 'super_admin' | 'leadership' | 'department'
+type Role = "super_admin" | "leadership" | "department";
 
 interface ParsedRow {
-  code: string | null
-  name: string
-  notes: string | null
-  weight: number
-  input_type: 'manual' | 'auto'
-  auto_source: string | null
+  code: string | null;
+  name: string;
+  notes: string | null;
+  weight: number;
+  input_type: "manual" | "auto";
+  auto_source: string | null;
 }
 
 function parseCSV(text: string): string[][] {
-  const rows: string[][] = []
-  let cells: string[] = []
-  let cur = ''
-  let inQuote = false
+  const rows: string[][] = [];
+  let cells: string[] = [];
+  let cur = "";
+  let inQuote = false;
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    const next = text[i + 1]
+    const ch = text[i];
+    const next = text[i + 1];
     if (inQuote) {
-      if (ch === '"' && next === '"') { cur += '"'; i++ }
-      else if (ch === '"') { inQuote = false }
-      else { cur += ch }
+      if (ch === '"' && next === '"') {
+        cur += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuote = false;
+      } else {
+        cur += ch;
+      }
     } else {
-      if (ch === '"') { inQuote = true }
-      else if (ch === ',') { cells.push(cur); cur = '' }
-      else if (ch === '\r' && next === '\n') { cells.push(cur); cur = ''; rows.push(cells); cells = []; i++ }
-      else if (ch === '\n' || ch === '\r') { cells.push(cur); cur = ''; rows.push(cells); cells = [] }
-      else { cur += ch }
+      if (ch === '"') {
+        inQuote = true;
+      } else if (ch === ",") {
+        cells.push(cur);
+        cur = "";
+      } else if (ch === "\r" && next === "\n") {
+        cells.push(cur);
+        cur = "";
+        rows.push(cells);
+        cells = [];
+        i++;
+      } else if (ch === "\n" || ch === "\r") {
+        cells.push(cur);
+        cur = "";
+        rows.push(cells);
+        cells = [];
+      } else {
+        cur += ch;
+      }
     }
   }
-  cells.push(cur)
-  if (cells.some(c => c.trim())) rows.push(cells)
-  return rows.filter(row => row.some(c => c.trim()))
+  cells.push(cur);
+  if (cells.some((c) => c.trim())) rows.push(cells);
+  return rows.filter((row) => row.some((c) => c.trim()));
 }
 
 const SOURCE_KEY_MAP: Record<string, string> = {
-  'noi_quy': 'noi_quy', 'tuân thủ nội quy': 'noi_quy',
-  'timesheets': 'timesheets',
-  'dao_tao': 'dao_tao', 'đào tạo': 'dao_tao',
-  'marketing': 'marketing',
-  'google_sheets': 'google_sheets', 'google sheets': 'google_sheets',
-  '1office': '1office',
-  'gitiho': 'gitiho',
-}
+  noi_quy: "noi_quy",
+  "tuân thủ nội quy": "noi_quy",
+  timesheets: "timesheets",
+  dao_tao: "dao_tao",
+  "đào tạo": "dao_tao",
+  marketing: "marketing",
+  google_sheets: "google_sheets",
+  "google sheets": "google_sheets",
+  "1office": "1office",
+  gitiho: "gitiho",
+};
 
 function parseCriteriaCSV(text: string, quarter: number): ParsedRow[] {
-  const rows = parseCSV(text)
-  if (rows.length < 2) return []
-  const [header, ...data] = rows
-  const hdr = header.map(h => h.trim())
+  const rows = parseCSV(text);
+  if (rows.length < 2) return [];
+  const [header, ...data] = rows;
+  const hdr = header.map((h) => h.trim());
   // Support new single "Hệ số" column and old "HS QUÝ N" multi-column format
-  const hsCol     = hdr.findIndex(h => h === 'Hệ số')
-  const qCol      = hdr.findIndex(h => h === `HS QUÝ ${quarter}`)
-  const q1Col     = hdr.findIndex(h => h === 'HS QUÝ 1')
-  const weightCol = hsCol >= 0 ? hsCol : qCol >= 0 ? qCol : q1Col
-  const notesCol  = hdr.findIndex(h => h === 'Ghi chú')
-  const sourceCol = hdr.findIndex(h => h === 'Nguồn / Đánh giá' || h === 'Nguồn')
+  const hsCol = hdr.findIndex((h) => h === "Hệ số");
+  const qCol = hdr.findIndex((h) => h === `HS QUÝ ${quarter}`);
+  const q1Col = hdr.findIndex((h) => h === "HS QUÝ 1");
+  const weightCol = hsCol >= 0 ? hsCol : qCol >= 0 ? qCol : q1Col;
+  const notesCol = hdr.findIndex((h) => h === "Ghi chú");
+  const sourceCol = hdr.findIndex(
+    (h) => h === "Nguồn / Đánh giá" || h === "Nguồn",
+  );
   return data
-    .filter(row => { const v = row[0]?.trim(); return v && !v.startsWith('#') })
-    .map(row => {
-      const tieuChi       = row[0]?.trim() ?? ''
-      const hinhThuc      = row[1]?.trim() ?? ''
-      const rawSource     = sourceCol >= 0 ? row[sourceCol]?.trim() ?? '' : ''
-      const rawWeight     = weightCol >= 0 ? row[weightCol]?.trim() ?? '' : ''
-      const rawNotes      = notesCol  >= 0 ? row[notesCol]?.trim()  ?? '' : ''
-      const match         = tieuChi.match(/^(TC\d+):\s*(.+)/)
-      const hinhThucLower = hinhThuc.toLowerCase()
-      const isAuto        = hinhThucLower.includes('tự động') || hinhThucLower.includes('dữ liệu từ báo cáo')
-      const sourceLower   = rawSource.toLowerCase()
+    .filter((row) => {
+      const v = row[0]?.trim();
+      return v && !v.startsWith("#");
+    })
+    .map((row) => {
+      const tieuChi = row[0]?.trim() ?? "";
+      const hinhThuc = row[1]?.trim() ?? "";
+      const rawSource = sourceCol >= 0 ? (row[sourceCol]?.trim() ?? "") : "";
+      const rawWeight = weightCol >= 0 ? (row[weightCol]?.trim() ?? "") : "";
+      const rawNotes = notesCol >= 0 ? (row[notesCol]?.trim() ?? "") : "";
+      const match = tieuChi.match(/^(TC\d+):\s*(.+)/);
+      const hinhThucLower = hinhThuc.toLowerCase();
+      const isAuto =
+        hinhThucLower.includes("tự động") ||
+        hinhThucLower.includes("dữ liệu từ báo cáo");
+      const sourceLower = rawSource.toLowerCase();
 
-      let autoSource: string | null = null
+      let autoSource: string | null = null;
       if (isAuto) {
-        autoSource = SOURCE_KEY_MAP[sourceLower] ?? (rawSource || 'google_sheets')
-      } else if (sourceLower.includes('ban lãnh đạo') || sourceLower === 'blđ' || sourceLower === 'leader') {
-        autoSource = 'leader'
+        autoSource =
+          SOURCE_KEY_MAP[sourceLower] ?? (rawSource || "google_sheets");
+      } else if (
+        sourceLower.includes("ban lãnh đạo") ||
+        sourceLower === "blđ" ||
+        sourceLower === "leader"
+      ) {
+        autoSource = "leader";
       }
       // 'đánh giá chéo' or blank → autoSource stays null
 
       return {
-        code:        match ? match[1] : null,
-        name:        match ? match[2].trim() : tieuChi,
-        notes:       rawNotes || null,
-        weight:      parseFloat(rawWeight) || 1,
-        input_type:  isAuto ? 'auto' as const : 'manual' as const,
+        code: match ? match[1] : null,
+        name: match ? match[2].trim() : tieuChi,
+        notes: rawNotes || null,
+        weight: parseFloat(rawWeight) || 1,
+        input_type: isAuto ? ("auto" as const) : ("manual" as const),
         auto_source: autoSource,
-      }
-    })
+      };
+    });
 }
 
-const STATUS_LABEL: Record<Period['status'], string> = {
-  draft:  'Sắp diễn ra',
-  open:   'Đang tiến hành',
-  closed: 'Đã kết thúc',
-}
-const STATUS_COLOR: Record<Period['status'], string> = {
-  draft:  'rgba(255,200,0,0.7)',
-  open:   'rgba(0,200,100,0.7)',
-  closed: 'rgba(255,255,255,0.3)',
-}
+const STATUS_LABEL: Record<Period["status"], string> = {
+  draft: "Sắp diễn ra",
+  open: "Đang tiến hành",
+  closed: "Đã kết thúc",
+};
+const STATUS_COLOR: Record<Period["status"], string> = {
+  draft: "rgba(255,200,0,0.7)",
+  open: "rgba(0,200,100,0.7)",
+  closed: "rgba(255,255,255,0.3)",
+};
 
 /* ── Period Banner ─────────────────────────────────── */
 function PeriodBanner({
@@ -135,28 +182,28 @@ function PeriodBanner({
   canEdit,
   onSave,
 }: {
-  period: Period | null
-  canEdit: boolean
-  onSave: (p: Period) => Promise<void>
+  period: Period | null;
+  canEdit: boolean;
+  onSave: (p: Period) => Promise<void>;
 }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState<Period | null>(period)
-  const [isPending, startTransition] = useTransition()
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Period | null>(period);
+  const [isPending, startTransition] = useTransition();
 
-  const current = editing ? draft : period
+  const current = editing ? draft : period;
 
   function fmt(d: string | null | undefined) {
-    if (!d) return '—'
-    const [y, m, day] = d.slice(0, 10).split('-')
-    return `${day}/${m}/${y}`
+    if (!d) return "—";
+    const [y, m, day] = d.slice(0, 10).split("-");
+    return `${day}/${m}/${y}`;
   }
 
   function handleSave() {
-    if (!draft) return
+    if (!draft) return;
     startTransition(async () => {
-      await onSave(draft)
-      setEditing(false)
-    })
+      await onSave(draft);
+      setEditing(false);
+    });
   }
 
   if (!period && !canEdit) {
@@ -164,40 +211,73 @@ function PeriodBanner({
       <div className="banner banner--empty">
         <span>Chưa có kỳ đánh giá nào được tạo.</span>
       </div>
-    )
+    );
   }
 
   return (
-    <div className={`banner ${editing ? 'banner--editing' : ''}`}>
+    <div className={`banner ${editing ? "banner--editing" : ""}`}>
       <div className="banner-body">
         {editing && draft ? (
           <div className="banner-form">
             <div className="bf-row">
               <label className="bf-label">Số quý</label>
-              <select className="bf-input bf-select" value={draft.quarter}
-                onChange={e => setDraft({ ...draft, quarter: +e.target.value })}>
-                {[1,2,3,4].map(q => <option key={q} value={q}>Quý {q}</option>)}
+              <select
+                className="bf-input bf-select"
+                value={draft.quarter}
+                onChange={(e) =>
+                  setDraft({ ...draft, quarter: +e.target.value })
+                }
+              >
+                {[1, 2, 3, 4].map((q) => (
+                  <option key={q} value={q}>
+                    Quý {q}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="bf-row">
               <label className="bf-label">Năm</label>
-              <input className="bf-input" type="number" value={draft.year}
-                onChange={e => setDraft({ ...draft, year: +e.target.value })} />
+              <input
+                className="bf-input"
+                type="number"
+                value={draft.year}
+                onChange={(e) => setDraft({ ...draft, year: +e.target.value })}
+              />
             </div>
             <div className="bf-row">
               <label className="bf-label">Bắt đầu</label>
-              <input className="bf-input" type="date" value={draft.start_date}
-                onChange={e => setDraft({ ...draft, start_date: e.target.value })} />
+              <input
+                className="bf-input"
+                type="date"
+                value={draft.start_date}
+                onChange={(e) =>
+                  setDraft({ ...draft, start_date: e.target.value })
+                }
+              />
             </div>
             <div className="bf-row">
               <label className="bf-label">Kết thúc</label>
-              <input className="bf-input" type="date" value={draft.end_date}
-                onChange={e => setDraft({ ...draft, end_date: e.target.value })} />
+              <input
+                className="bf-input"
+                type="date"
+                value={draft.end_date}
+                onChange={(e) =>
+                  setDraft({ ...draft, end_date: e.target.value })
+                }
+              />
             </div>
             <div className="bf-row">
               <label className="bf-label">Tình trạng</label>
-              <select className="bf-input bf-select" value={draft.status}
-                onChange={e => setDraft({ ...draft, status: e.target.value as Period['status'] })}>
+              <select
+                className="bf-input bf-select"
+                value={draft.status}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    status: e.target.value as Period["status"],
+                  })
+                }
+              >
                 <option value="draft">Sắp diễn ra</option>
                 <option value="open">Đang tiến hành</option>
                 <option value="closed">Đã kết thúc</option>
@@ -206,18 +286,19 @@ function PeriodBanner({
           </div>
         ) : current ? (
           <p className="banner-text">
-            Đánh giá{' '}
-            <strong>Quý {current.quarter}</strong>{' '}
-            năm <strong>{current.year}</strong>{' '}
-            bắt đầu từ <strong>{fmt(current.start_date)}</strong>{' '}
-            tới <strong>{fmt(current.end_date)}</strong>{' '}
-            hiện{' '}
+            Đánh giá <strong>Quý {current.quarter}</strong> năm{" "}
+            <strong>{current.year}</strong> bắt đầu từ{" "}
+            <strong>{fmt(current.start_date)}</strong> tới{" "}
+            <strong>{fmt(current.end_date)}</strong> hiện{" "}
             <span className={`banner-status banner-status--${current.status}`}>
               {STATUS_LABEL[current.status]}
-            </span>.
+            </span>
+            .
           </p>
         ) : (
-          <p className="banner-text banner-text--muted">Chưa có kỳ đánh giá. Nhấn chỉnh sửa để tạo mới.</p>
+          <p className="banner-text banner-text--muted">
+            Chưa có kỳ đánh giá. Nhấn chỉnh sửa để tạo mới.
+          </p>
         )}
       </div>
 
@@ -225,25 +306,47 @@ function PeriodBanner({
         <div className="banner-actions">
           {editing ? (
             <>
-              <button className="bact-btn bact-btn--save" onClick={handleSave} disabled={isPending}>
+              <button
+                className="bact-btn bact-btn--save"
+                onClick={handleSave}
+                disabled={isPending}
+              >
                 <Check size={13} /> Lưu
               </button>
-              <button className="bact-btn bact-btn--cancel" onClick={() => { setDraft(period); setEditing(false) }}>
+              <button
+                className="bact-btn bact-btn--cancel"
+                onClick={() => {
+                  setDraft(period);
+                  setEditing(false);
+                }}
+              >
                 <X size={13} /> Huỷ
               </button>
             </>
           ) : (
-            <button className="bact-btn bact-btn--edit" onClick={() => {
-              setDraft(period ?? { id: '', quarter: 1, year: new Date().getFullYear(), start_date: '', end_date: '', status: 'draft' })
-              setEditing(true)
-            }}>
+            <button
+              className="bact-btn bact-btn--edit"
+              onClick={() => {
+                setDraft(
+                  period ?? {
+                    id: "",
+                    quarter: 1,
+                    year: new Date().getFullYear(),
+                    start_date: "",
+                    end_date: "",
+                    status: "draft",
+                  },
+                );
+                setEditing(true);
+              }}
+            >
               <Pencil size={13} /> Chỉnh sửa
             </button>
           )}
         </div>
       )}
     </div>
-  )
+  );
 }
 
 /* ── Criteria Table ────────────────────────────────── */
@@ -255,74 +358,90 @@ function CriteriaTable({
   onAddRow,
   onImportCsv,
 }: {
-  criteria: Criterion[]
-  canEdit: boolean
-  onUpdateCriterion: (id: string, fields: { code: string | null; name: string; notes: string | null; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) => Promise<void>
-  onDeleteCriterion: (id: string) => Promise<void>
-  onAddRow: () => void
-  onImportCsv?: () => void
+  criteria: Criterion[];
+  canEdit: boolean;
+  onUpdateCriterion: (
+    id: string,
+    fields: {
+      code: string | null;
+      name: string;
+      notes: string | null;
+      weight: number;
+      input_type: "manual" | "auto";
+      auto_source: string | null;
+    },
+  ) => Promise<void>;
+  onDeleteCriterion: (id: string) => Promise<void>;
+  onAddRow: () => void;
+  onImportCsv?: () => void;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [draftCode, setDraftCode] = useState('')
-  const [draftName, setDraftName] = useState('')
-  const [draftNotes, setDraftNotes] = useState('')
-  const [draftWeight, setDraftWeight] = useState('')
-  const [draftType, setDraftType] = useState<'manual' | 'auto'>('manual')
-  const [draftAutoSource, setDraftAutoSource] = useState('')
-  const [isPending, startTransition] = useTransition()
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [draftCode, setDraftCode] = useState("");
+  const [draftName, setDraftName] = useState("");
+  const [draftNotes, setDraftNotes] = useState("");
+  const [draftWeight, setDraftWeight] = useState("");
+  const [draftType, setDraftType] = useState<"manual" | "auto">("manual");
+  const [draftAutoSource, setDraftAutoSource] = useState("");
+  const [isPending, startTransition] = useTransition();
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
-  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
-  const selectAllRef = useRef<HTMLInputElement>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
-  const allSelected = criteria.length > 0 && criteria.every(c => selectedIds.has(c.id))
-  const someSelected = selectedIds.size > 0
+  const allSelected =
+    criteria.length > 0 && criteria.every((c) => selectedIds.has(c.id));
+  const someSelected = selectedIds.size > 0;
 
   useEffect(() => {
     if (selectAllRef.current) {
-      selectAllRef.current.indeterminate = someSelected && !allSelected
+      selectAllRef.current.indeterminate = someSelected && !allSelected;
     }
-  }, [someSelected, allSelected])
+  }, [someSelected, allSelected]);
 
   // Clear selection when criteria list changes (e.g. after period switch)
-  useEffect(() => { setSelectedIds(new Set()) }, [criteria])
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [criteria]);
 
   const toggleAll = useCallback(() => {
-    setSelectedIds(allSelected ? new Set() : new Set(criteria.map(c => c.id)))
-  }, [allSelected, criteria])
+    setSelectedIds(
+      allSelected ? new Set() : new Set(criteria.map((c) => c.id)),
+    );
+  }, [allSelected, criteria]);
 
   const toggleOne = useCallback((id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
-  }, [])
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   async function handleBulkDelete() {
-    setIsBulkDeleting(true)
-    await Promise.all([...selectedIds].map(id => onDeleteCriterion(id)))
-    setSelectedIds(new Set())
-    setBulkDeleteConfirm(false)
-    setIsBulkDeleting(false)
+    setIsBulkDeleting(true);
+    await Promise.all([...selectedIds].map((id) => onDeleteCriterion(id)));
+    setSelectedIds(new Set());
+    setBulkDeleteConfirm(false);
+    setIsBulkDeleting(false);
   }
 
   function startEdit(c: Criterion) {
-    setEditingId(c.id)
-    setDraftCode(c.code ?? '')
-    setDraftName(c.name)
-    setDraftNotes(c.notes ?? '')
-    setDraftWeight(String(c.weight))
-    setDraftType(c.input_type)
-    setDraftAutoSource(c.auto_source ?? '')
+    setEditingId(c.id);
+    setDraftCode(c.code ?? "");
+    setDraftName(c.name);
+    setDraftNotes(c.notes ?? "");
+    setDraftWeight(String(c.weight));
+    setDraftType(c.input_type);
+    setDraftAutoSource(c.auto_source ?? "");
   }
 
   function saveEdit(id: string) {
-    if (!draftName.trim()) return
-    const w = parseFloat(draftWeight)
-    if (isNaN(w) || w < 0) return
+    if (!draftName.trim()) return;
+    const w = parseFloat(draftWeight);
+    if (isNaN(w) || w < 0) return;
     startTransition(async () => {
       await onUpdateCriterion(id, {
         code: draftCode.trim() || null,
@@ -330,40 +449,45 @@ function CriteriaTable({
         notes: draftNotes.trim() || null,
         weight: w,
         input_type: draftType,
-        auto_source: draftType === 'auto'
-          ? (draftAutoSource || null)
-          : (draftAutoSource === 'leader' ? 'leader' : null),
-      })
-      setEditingId(null)
-    })
+        auto_source:
+          draftType === "auto"
+            ? draftAutoSource || null
+            : draftAutoSource === "leader"
+              ? "leader"
+              : null,
+      });
+      setEditingId(null);
+    });
   }
 
   function handleExportTemplate() {
     const lines = [
-      'DS TIÊU CHÍ & HỆ SỐ,Hình thức,Nguồn / Đánh giá,Hệ số,Ghi chú',
-      'TC01: Chất lượng và hiệu quả công việc,Thủ công,Đánh giá chéo,1.5,',
-      'TC02: Tiến độ hoàn thành đúng hạn,Thủ công,Đánh giá chéo,1.0,',
-      'TC03: Năng lực lãnh đạo và định hướng,Thủ công,Ban lãnh đạo,1.0,Được BLĐ đánh giá trực tiếp',
-      'TC04: Tuân thủ nội quy,Tự động,noi_quy,1.0,',
-      'TC05: Chấm công và giờ làm việc,Tự động,timesheets,1.0,',
-      'TC06: Đào tạo và phát triển,Tự động,dao_tao,1.0,',
-      'TC07: Marketing và truyền thông,Tự động,marketing,1.0,',
-      'TC08: Báo cáo Google Sheets,Tự động,google_sheets,2.0,Nhập từ báo cáo hệ thống',
-      'TC09: Hoạt động 1Office,Tự động,1office,1.0,',
-      'TC10: Kết quả học tập Gitiho,Tự động,gitiho,1.0,',
-    ]
-    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'mau_tieu_chi.csv'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+      "DS TIÊU CHÍ & HỆ SỐ,Hình thức,Nguồn / Đánh giá,Hệ số,Ghi chú",
+      "TC01: Chất lượng và hiệu quả công việc,Thủ công,Đánh giá chéo,1.5,",
+      "TC02: Tiến độ hoàn thành đúng hạn,Thủ công,Đánh giá chéo,1.0,",
+      "TC03: Năng lực lãnh đạo và định hướng,Thủ công,Ban lãnh đạo,1.0,Được BLĐ đánh giá trực tiếp",
+      "TC04: Tuân thủ nội quy,Tự động,noi_quy,1.0,",
+      "TC05: Chấm công và giờ làm việc,Tự động,timesheets,1.0,",
+      "TC06: Đào tạo và phát triển,Tự động,dao_tao,1.0,",
+      "TC07: Marketing và truyền thông,Tự động,marketing,1.0,",
+      "TC08: Báo cáo Google Sheets,Tự động,google_sheets,2.0,Nhập từ báo cáo hệ thống",
+      "TC09: Hoạt động 1Office,Tự động,1office,1.0,",
+      "TC10: Kết quả học tập Gitiho,Tự động,gitiho,1.0,",
+    ];
+    const blob = new Blob(["﻿" + lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mau_tieu_chi.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
-  const totalWeight = criteria.reduce((s, c) => s + Number(c.weight), 0)
+  const totalWeight = criteria.reduce((s, c) => s + Number(c.weight), 0);
 
   return (
     <div className="ct-wrap">
@@ -373,23 +497,36 @@ function CriteriaTable({
           <span className="ct-total">
             Tổng hệ số: <strong>{totalWeight.toFixed(2)}</strong>
           </span>
-          {canEdit && someSelected && (
-            bulkDeleteConfirm ? (
+          {canEdit &&
+            someSelected &&
+            (bulkDeleteConfirm ? (
               <div className="ct-bulk-confirm">
-                <span className="ct-del-warn">Xoá {selectedIds.size} tiêu chí?</span>
-                <button className="ct-icon-btn ct-icon-btn--del-yes ct-bulk-yes" disabled={isBulkDeleting} onClick={handleBulkDelete}>
-                  <Check size={12} /> {isBulkDeleting ? 'Đang xoá…' : 'Xoá'}
+                <span className="ct-del-warn">
+                  Xoá {selectedIds.size} tiêu chí?
+                </span>
+                <button
+                  className="ct-icon-btn ct-icon-btn--del-yes ct-bulk-yes"
+                  disabled={isBulkDeleting}
+                  onClick={handleBulkDelete}
+                >
+                  <Check size={12} /> {isBulkDeleting ? "Đang xoá…" : "Xoá"}
                 </button>
-                <button className="ct-icon-btn ct-icon-btn--cancel" disabled={isBulkDeleting} onClick={() => setBulkDeleteConfirm(false)}>
+                <button
+                  className="ct-icon-btn ct-icon-btn--cancel"
+                  disabled={isBulkDeleting}
+                  onClick={() => setBulkDeleteConfirm(false)}
+                >
                   <X size={12} />
                 </button>
               </div>
             ) : (
-              <button className="ct-bulk-del-btn" onClick={() => setBulkDeleteConfirm(true)}>
+              <button
+                className="ct-bulk-del-btn"
+                onClick={() => setBulkDeleteConfirm(true)}
+              >
                 <Trash2 size={13} /> Xoá {selectedIds.size} đã chọn
               </button>
-            )
-          )}
+            ))}
           {canEdit && (
             <button className="ct-template-btn" onClick={handleExportTemplate}>
               <FileDown size={13} /> Tải mẫu CSV
@@ -411,7 +548,9 @@ function CriteriaTable({
       {criteria.length === 0 ? (
         <div className="ct-empty">
           <RefreshCw size={20} style={{ opacity: 0.2 }} />
-          <span>Chưa có tiêu chí nào. Thêm mới hoặc đồng bộ từ Google Sheets.</span>
+          <span>
+            Chưa có tiêu chí nào. Thêm mới hoặc đồng bộ từ Google Sheets.
+          </span>
         </div>
       ) : (
         <div className="ct-table-wrap">
@@ -420,7 +559,13 @@ function CriteriaTable({
               <tr>
                 {canEdit && (
                   <th className="ct-th ct-th--check">
-                    <input ref={selectAllRef} type="checkbox" className="ct-checkbox" checked={allSelected} onChange={toggleAll} />
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      className="ct-checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                    />
                   </th>
                 )}
                 <th className="ct-th ct-th--stt">STT</th>
@@ -434,10 +579,21 @@ function CriteriaTable({
             </thead>
             <tbody>
               {criteria.map((c, i) => (
-                <tr key={c.id} className={`ct-row${editingId === c.id ? ' ct-row--editing' : ''}${selectedIds.has(c.id) ? ' ct-row--selected' : ''}`} style={{ animationDelay: editingId === c.id ? '0ms' : `${i * 30}ms` }}>
+                <tr
+                  key={c.id}
+                  className={`ct-row${editingId === c.id ? " ct-row--editing" : ""}${selectedIds.has(c.id) ? " ct-row--selected" : ""}`}
+                  style={{
+                    animationDelay: editingId === c.id ? "0ms" : `${i * 30}ms`,
+                  }}
+                >
                   {canEdit && (
                     <td className="ct-td ct-td--check">
-                      <input type="checkbox" className="ct-checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleOne(c.id)} />
+                      <input
+                        type="checkbox"
+                        className="ct-checkbox"
+                        checked={selectedIds.has(c.id)}
+                        onChange={() => toggleOne(c.id)}
+                      />
                     </td>
                   )}
                   <td className="ct-td ct-td--stt">{i + 1}</td>
@@ -446,12 +602,12 @@ function CriteriaTable({
                       <input
                         className="ct-edit-input ct-edit-input--code"
                         value={draftCode}
-                        onChange={e => setDraftCode(e.target.value)}
+                        onChange={(e) => setDraftCode(e.target.value)}
                         placeholder="TC01"
                         maxLength={20}
                       />
                     ) : (
-                      <span className="ct-code">{c.code ?? '—'}</span>
+                      <span className="ct-code">{c.code ?? "—"}</span>
                     )}
                   </td>
                   <td className="ct-td ct-td--name">
@@ -459,30 +615,32 @@ function CriteriaTable({
                       <input
                         className="ct-edit-input ct-edit-input--name"
                         value={draftName}
-                        onChange={e => setDraftName(e.target.value)}
+                        onChange={(e) => setDraftName(e.target.value)}
                         placeholder="Tên tiêu chí..."
                         autoFocus
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') saveEdit(c.id)
-                          if (e.key === 'Escape') setEditingId(null)
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveEdit(c.id);
+                          if (e.key === "Escape") setEditingId(null);
                         }}
                       />
-                    ) : c.name}
+                    ) : (
+                      c.name
+                    )}
                   </td>
                   <td className="ct-td ct-td--notes">
                     {editingId === c.id ? (
                       <textarea
                         className="ct-edit-input ct-edit-input--notes"
                         value={draftNotes}
-                        onChange={e => setDraftNotes(e.target.value)}
+                        onChange={(e) => setDraftNotes(e.target.value)}
                         placeholder="Ghi chú..."
                         rows={3}
-                        onKeyDown={e => {
-                          if (e.key === 'Escape') setEditingId(null)
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setEditingId(null);
                         }}
                       />
                     ) : (
-                      <span className="ct-notes">{c.notes ?? ''}</span>
+                      <span className="ct-notes">{c.notes ?? ""}</span>
                     )}
                   </td>
                   <td className="ct-td ct-td--weight">
@@ -492,14 +650,16 @@ function CriteriaTable({
                         type="number"
                         step="0.01"
                         value={draftWeight}
-                        onChange={e => setDraftWeight(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') saveEdit(c.id)
-                          if (e.key === 'Escape') setEditingId(null)
+                        onChange={(e) => setDraftWeight(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveEdit(c.id);
+                          if (e.key === "Escape") setEditingId(null);
                         }}
                       />
                     ) : (
-                      <span className="ct-weight-val">{Number(c.weight).toFixed(2)}</span>
+                      <span className="ct-weight-val">
+                        {Number(c.weight).toFixed(2)}
+                      </span>
                     )}
                   </td>
                   <td className="ct-td ct-td--type">
@@ -508,16 +668,18 @@ function CriteriaTable({
                         <select
                           className="ct-type-select"
                           value={draftType}
-                          onChange={e => setDraftType(e.target.value as 'manual' | 'auto')}
+                          onChange={(e) =>
+                            setDraftType(e.target.value as "manual" | "auto")
+                          }
                         >
                           <option value="manual">Thủ công</option>
                           <option value="auto">Tự động</option>
                         </select>
-                        {draftType === 'auto' && (
+                        {draftType === "auto" && (
                           <select
                             className="ct-type-select"
                             value={draftAutoSource}
-                            onChange={e => setDraftAutoSource(e.target.value)}
+                            onChange={(e) => setDraftAutoSource(e.target.value)}
                           >
                             <option value="">Chọn nguồn…</option>
                             <option value="noi_quy">Tuân thủ nội quy</option>
@@ -529,11 +691,11 @@ function CriteriaTable({
                             <option value="gitiho">Gitiho</option>
                           </select>
                         )}
-                        {draftType === 'manual' && (
+                        {draftType === "manual" && (
                           <select
                             className="ct-type-select"
-                            value={draftAutoSource === 'leader' ? 'leader' : ''}
-                            onChange={e => setDraftAutoSource(e.target.value)}
+                            value={draftAutoSource === "leader" ? "leader" : ""}
+                            onChange={(e) => setDraftAutoSource(e.target.value)}
                           >
                             <option value="">Đánh giá chéo</option>
                             <option value="leader">Ban lãnh đạo</option>
@@ -541,12 +703,22 @@ function CriteriaTable({
                         )}
                       </div>
                     ) : (
-                      <span className={`ct-type-badge ct-type-badge--${c.input_type}`}>
-                        {c.input_type === 'auto'
-                          ? <><Zap size={10} /> {c.auto_source ?? 'auto'}</>
-                          : c.auto_source === 'leader'
-                            ? <><Hand size={10} /> BLĐ</>
-                            : <><Hand size={10} /> Đánh giá chéo</>}
+                      <span
+                        className={`ct-type-badge ct-type-badge--${c.input_type}`}
+                      >
+                        {c.input_type === "auto" ? (
+                          <>
+                            <Zap size={10} /> {c.auto_source ?? "auto"}
+                          </>
+                        ) : c.auto_source === "leader" ? (
+                          <>
+                            <Hand size={10} /> BLĐ
+                          </>
+                        ) : (
+                          <>
+                            <Hand size={10} /> Đánh giá chéo
+                          </>
+                        )}
                       </span>
                     )}
                   </td>
@@ -554,10 +726,17 @@ function CriteriaTable({
                     <td className="ct-td ct-td--actions">
                       {editingId === c.id ? (
                         <div className="ct-row-actions">
-                          <button className="ct-icon-btn ct-icon-btn--save" onClick={() => saveEdit(c.id)} disabled={isPending}>
+                          <button
+                            className="ct-icon-btn ct-icon-btn--save"
+                            onClick={() => saveEdit(c.id)}
+                            disabled={isPending}
+                          >
                             <Check size={12} />
                           </button>
-                          <button className="ct-icon-btn ct-icon-btn--cancel" onClick={() => setEditingId(null)}>
+                          <button
+                            className="ct-icon-btn ct-icon-btn--cancel"
+                            onClick={() => setEditingId(null)}
+                          >
                             <X size={12} />
                           </button>
                         </div>
@@ -569,23 +748,38 @@ function CriteriaTable({
                             disabled={isPending}
                             onClick={() => {
                               startTransition(async () => {
-                                await onDeleteCriterion(c.id)
-                                setDeletingId(null)
-                              })
+                                await onDeleteCriterion(c.id);
+                                setDeletingId(null);
+                              });
                             }}
                           >
                             <Check size={12} />
                           </button>
-                          <button className="ct-icon-btn ct-icon-btn--cancel" onClick={() => setDeletingId(null)}>
+                          <button
+                            className="ct-icon-btn ct-icon-btn--cancel"
+                            onClick={() => setDeletingId(null)}
+                          >
                             <X size={12} />
                           </button>
                         </div>
                       ) : (
                         <div className="ct-row-actions">
-                          <button className="ct-icon-btn ct-icon-btn--edit" onClick={() => { setDeletingId(null); startEdit(c) }}>
+                          <button
+                            className="ct-icon-btn ct-icon-btn--edit"
+                            onClick={() => {
+                              setDeletingId(null);
+                              startEdit(c);
+                            }}
+                          >
                             <Pencil size={12} />
                           </button>
-                          <button className="ct-icon-btn ct-icon-btn--delete" onClick={() => { setEditingId(null); setDeletingId(c.id) }}>
+                          <button
+                            className="ct-icon-btn ct-icon-btn--delete"
+                            onClick={() => {
+                              setEditingId(null);
+                              setDeletingId(c.id);
+                            }}
+                          >
                             <Trash2 size={12} />
                           </button>
                         </div>
@@ -599,7 +793,7 @@ function CriteriaTable({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 /* ── Add Criterion Modal ────────────────────────────── */
@@ -610,85 +804,136 @@ function AddCriterionModal({
   onClose,
   onAdded,
 }: {
-  periodId: string
-  region: string
-  nextOrder: number
-  onClose: () => void
-  onAdded: (c: Criterion) => void
+  periodId: string;
+  region: string;
+  nextOrder: number;
+  onClose: () => void;
+  onAdded: (c: Criterion) => void;
 }) {
-  const [form, setForm] = useState({ code: '', name: '', notes: '', weight: '1', input_type: 'manual' as 'manual' | 'auto', auto_source: '' })
-  const [isPending, startTransition] = useTransition()
-  const [err, setErr] = useState('')
+  const [form, setForm] = useState({
+    code: "",
+    name: "",
+    notes: "",
+    weight: "1",
+    input_type: "manual" as "manual" | "auto",
+    auto_source: "",
+  });
+  const [isPending, startTransition] = useTransition();
+  const [err, setErr] = useState("");
 
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.name.trim()) { setErr('Tên tiêu chí không được để trống.'); return }
+    e.preventDefault();
+    if (!form.name.trim()) {
+      setErr("Tên tiêu chí không được để trống.");
+      return;
+    }
     startTransition(async () => {
-      const res = await fetch('/api/criteria', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/criteria", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          period_id:     periodId,
+          period_id: periodId,
           region,
-          code:          form.code || null,
-          name:          form.name,
-          notes:         form.notes.trim() || null,
-          weight:        parseFloat(form.weight) || 1,
-          input_type:    form.input_type,
-          auto_source:   form.input_type === 'auto'
-            ? (form.auto_source || null)
-            : (form.auto_source === 'leader' ? 'leader' : null),
+          code: form.code || null,
+          name: form.name,
+          notes: form.notes.trim() || null,
+          weight: parseFloat(form.weight) || 1,
+          input_type: form.input_type,
+          auto_source:
+            form.input_type === "auto"
+              ? form.auto_source || null
+              : form.auto_source === "leader"
+                ? "leader"
+                : null,
           display_order: nextOrder,
         }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setErr(data.error); return }
-      onAdded(data)
-      onClose()
-    })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error);
+        return;
+      }
+      onAdded(data);
+      onClose();
+    });
   }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <span className="modal-title">Thêm tiêu chí</span>
-          <button className="modal-close" onClick={onClose}><X size={16} /></button>
+          <button className="modal-close" onClick={onClose}>
+            <X size={16} />
+          </button>
         </div>
         <form className="modal-form" onSubmit={handleSubmit}>
           <div className="mf-field">
             <label className="mf-label">Mã tiêu chí</label>
-            <input className="mf-input" placeholder="TC01" value={form.code}
-              onChange={e => setForm({ ...form, code: e.target.value })} />
+            <input
+              className="mf-input"
+              placeholder="TC01"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+            />
           </div>
           <div className="mf-field">
-            <label className="mf-label">Tên tiêu chí <span className="mf-required">*</span></label>
-            <input className="mf-input" placeholder="Nhập tên tiêu chí..." value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })} />
+            <label className="mf-label">
+              Tên tiêu chí <span className="mf-required">*</span>
+            </label>
+            <input
+              className="mf-input"
+              placeholder="Nhập tên tiêu chí..."
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
           </div>
           <div className="mf-field">
             <label className="mf-label">Ghi chú</label>
-            <input className="mf-input" placeholder="Ghi chú (không bắt buộc)" value={form.notes}
-              onChange={e => setForm({ ...form, notes: e.target.value })} />
+            <input
+              className="mf-input"
+              placeholder="Ghi chú (không bắt buộc)"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
           </div>
           <div className="mf-field">
             <label className="mf-label">Hệ số</label>
-            <input className="mf-input" type="number" step="0.01" min="0" value={form.weight}
-              onChange={e => setForm({ ...form, weight: e.target.value })} />
+            <input
+              className="mf-input"
+              type="number"
+              step="0.01"
+              min="0"
+              value={form.weight}
+              onChange={(e) => setForm({ ...form, weight: e.target.value })}
+            />
           </div>
           <div className="mf-field">
             <label className="mf-label">Loại</label>
-            <select className="mf-input" value={form.input_type}
-              onChange={e => setForm({ ...form, input_type: e.target.value as 'manual' | 'auto' })}>
+            <select
+              className="mf-input"
+              value={form.input_type}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  input_type: e.target.value as "manual" | "auto",
+                })
+              }
+            >
               <option value="manual">Thủ công</option>
               <option value="auto">Tự động</option>
             </select>
           </div>
-          {form.input_type === 'auto' && (
+          {form.input_type === "auto" && (
             <div className="mf-field">
               <label className="mf-label">Nguồn dữ liệu</label>
-              <select className="mf-input" value={form.auto_source}
-                onChange={e => setForm({ ...form, auto_source: e.target.value })}>
+              <select
+                className="mf-input"
+                value={form.auto_source}
+                onChange={(e) =>
+                  setForm({ ...form, auto_source: e.target.value })
+                }
+              >
                 <option value="">Chọn nguồn…</option>
                 <option value="noi_quy">Tuân thủ nội quy</option>
                 <option value="timesheets">Timesheets</option>
@@ -700,11 +945,16 @@ function AddCriterionModal({
               </select>
             </div>
           )}
-          {form.input_type === 'manual' && (
+          {form.input_type === "manual" && (
             <div className="mf-field">
               <label className="mf-label">Hình thức đánh giá</label>
-              <select className="mf-input" value={form.auto_source}
-                onChange={e => setForm({ ...form, auto_source: e.target.value })}>
+              <select
+                className="mf-input"
+                value={form.auto_source}
+                onChange={(e) =>
+                  setForm({ ...form, auto_source: e.target.value })
+                }
+              >
                 <option value="">Đánh giá chéo</option>
                 <option value="leader">Ban lãnh đạo</option>
               </select>
@@ -712,15 +962,25 @@ function AddCriterionModal({
           )}
           {err && <p className="mf-error">{err}</p>}
           <div className="mf-actions">
-            <button type="button" className="mf-btn mf-btn--cancel" onClick={onClose}>Huỷ</button>
-            <button type="submit" className="mf-btn mf-btn--save" disabled={isPending}>
-              {isPending ? 'Đang lưu…' : 'Thêm'}
+            <button
+              type="button"
+              className="mf-btn mf-btn--cancel"
+              onClick={onClose}
+            >
+              Huỷ
+            </button>
+            <button
+              type="submit"
+              className="mf-btn mf-btn--save"
+              disabled={isPending}
+            >
+              {isPending ? "Đang lưu…" : "Thêm"}
             </button>
           </div>
         </form>
       </div>
     </div>
-  )
+  );
 }
 
 /* ── Import CSV Modal ──────────────────────────────── */
@@ -731,34 +991,34 @@ function ImportCsvModal({
   onClose,
   onImported,
 }: {
-  periodId: string
-  region: string
-  quarter: number
-  onClose: () => void
-  onImported: (c: Criterion[]) => void
+  periodId: string;
+  region: string;
+  quarter: number;
+  onClose: () => void;
+  onImported: (c: Criterion[]) => void;
 }) {
-  const [rows, setRows] = useState<ParsedRow[]>([])
-  const [isPending, startTransition] = useTransition()
-  const [err, setErr] = useState('')
+  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [isPending, startTransition] = useTransition();
+  const [err, setErr] = useState("");
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
       try {
-        const text = ev.target?.result as string
-        setRows(parseCriteriaCSV(text, quarter))
-        setErr('')
+        const text = ev.target?.result as string;
+        setRows(parseCriteriaCSV(text, quarter));
+        setErr("");
       } catch {
-        setErr('Không đọc được file CSV. Hãy kiểm tra định dạng.')
+        setErr("Không đọc được file CSV. Hãy kiểm tra định dạng.");
       }
-    }
-    reader.readAsText(file, 'utf-8')
+    };
+    reader.readAsText(file, "utf-8");
   }
 
   function handleImport() {
-    if (!rows.length) return
+    if (!rows.length) return;
     startTransition(async () => {
       const body = rows.map((r, i) => ({
         period_id: periodId,
@@ -770,37 +1030,54 @@ function ImportCsvModal({
         input_type: r.input_type,
         auto_source: r.auto_source,
         display_order: i + 1,
-      }))
-      const res = await fetch('/api/criteria', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      }));
+      const res = await fetch("/api/criteria", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-      })
-      const data = await res.json()
-      if (!res.ok) { setErr(data.error); return }
-      onImported(data)
-      onClose()
-    })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error);
+        return;
+      }
+      onImported(data);
+      onClose();
+    });
   }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card import-modal-card" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal-card import-modal-card"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <span className="modal-title">Import tiêu chí từ CSV</span>
-          <button className="modal-close" onClick={onClose}><X size={16} /></button>
+          <button className="modal-close" onClick={onClose}>
+            <X size={16} />
+          </button>
         </div>
         <div className="import-body">
           <label className="import-file-zone">
             <Upload size={20} />
             <span className="import-file-text">Chọn file CSV</span>
-            <span className="import-file-hint">Dùng cột HS QUÝ {quarter} · DS TIÊU CHÍ & HỆ SỐ · {region}</span>
-            <input type="file" accept=".csv" onChange={handleFile} style={{ display: 'none' }} />
+            <span className="import-file-hint">
+              Dùng cột HS QUÝ {quarter} · DS TIÊU CHÍ & HỆ SỐ · {region}
+            </span>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleFile}
+              style={{ display: "none" }}
+            />
           </label>
 
           {rows.length > 0 && (
             <>
-              <div className="import-count">{rows.length} tiêu chí sẽ được thêm vào kỳ này</div>
+              <div className="import-count">
+                {rows.length} tiêu chí sẽ được thêm vào kỳ này
+              </div>
               <div className="import-table-wrap">
                 <table className="ct-table">
                   <thead>
@@ -815,24 +1092,47 @@ function ImportCsvModal({
                   <tbody>
                     {rows.map((r, i) => (
                       <tr key={i} className="ct-row">
-                        <td className="ct-td"><span className="ct-code">{r.code ?? '—'}</span></td>
+                        <td className="ct-td">
+                          <span className="ct-code">{r.code ?? "—"}</span>
+                        </td>
                         <td className="ct-td">{r.name}</td>
-                        <td className="ct-td ct-td--notes"><span className="ct-notes">{r.notes ?? ''}</span></td>
+                        <td className="ct-td ct-td--notes">
+                          <span className="ct-notes">{r.notes ?? ""}</span>
+                        </td>
                         <td className="ct-td">
                           <input
                             className="ct-weight-input"
-                            type="number" step="0.01" min="0"
+                            type="number"
+                            step="0.01"
+                            min="0"
                             value={r.weight}
-                            onChange={e => setRows(prev => prev.map((row, j) =>
-                              j === i ? { ...row, weight: parseFloat(e.target.value) || 0 } : row
-                            ))}
+                            onChange={(e) =>
+                              setRows((prev) =>
+                                prev.map((row, j) =>
+                                  j === i
+                                    ? {
+                                        ...row,
+                                        weight: parseFloat(e.target.value) || 0,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
                           />
                         </td>
                         <td className="ct-td">
-                          <span className={`ct-type-badge ct-type-badge--${r.input_type}`}>
-                            {r.input_type === 'auto'
-                              ? <><Zap size={10} /> {r.auto_source}</>
-                              : <><Hand size={10} /> Thủ công</>}
+                          <span
+                            className={`ct-type-badge ct-type-badge--${r.input_type}`}
+                          >
+                            {r.input_type === "auto" ? (
+                              <>
+                                <Zap size={10} /> {r.auto_source}
+                              </>
+                            ) : (
+                              <>
+                                <Hand size={10} /> Thủ công
+                              </>
+                            )}
                           </span>
                         </td>
                       </tr>
@@ -846,20 +1146,28 @@ function ImportCsvModal({
           {err && <p className="mf-error">{err}</p>}
 
           <div className="mf-actions">
-            <button type="button" className="mf-btn mf-btn--cancel" onClick={onClose}>Huỷ</button>
+            <button
+              type="button"
+              className="mf-btn mf-btn--cancel"
+              onClick={onClose}
+            >
+              Huỷ
+            </button>
             <button
               type="button"
               className="mf-btn mf-btn--save"
               disabled={!rows.length || isPending}
               onClick={handleImport}
             >
-              {isPending ? 'Đang import…' : `Import ${rows.length || ''} tiêu chí từ CSV`}
+              {isPending
+                ? "Đang import…"
+                : `Import ${rows.length || ""} tiêu chí từ CSV`}
             </button>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 /* ── Create Period Modal ───────────────────────────── */
@@ -868,85 +1176,134 @@ function CreatePeriodModal({
   onCreated,
   periods,
 }: {
-  onClose: () => void
-  onCreated: (p: Period) => void
-  periods: Period[]
+  onClose: () => void;
+  onCreated: (p: Period) => void;
+  periods: Period[];
 }) {
-  const curYear = new Date().getFullYear()
+  const curYear = new Date().getFullYear();
   const [form, setForm] = useState({
     quarter: 1,
     year: curYear,
-    start_date: '',
-    end_date: '',
-    status: 'draft' as Period['status'],
-  })
-  const [copyCriteria, setCopyCriteria] = useState(periods.length > 0)
-  const [copyFromId, setCopyFromId] = useState<string>(periods[0]?.id ?? '')
-  const [copyFromRegion, setCopyFromRegion] = useState<'all' | 'Miền Bắc' | 'Miền Nam'>('all')
-  const [isPending, startTransition] = useTransition()
-  const [err, setErr] = useState('')
+    start_date: "",
+    end_date: "",
+    status: "draft" as Period["status"],
+  });
+  const [copyCriteria, setCopyCriteria] = useState(periods.length > 0);
+  const [copyFromId, setCopyFromId] = useState<string>(periods[0]?.id ?? "");
+  const [copyFromRegion, setCopyFromRegion] = useState<
+    "all" | "Miền Bắc" | "Miền Nam"
+  >("all");
+  const [isPending, startTransition] = useTransition();
+  const [err, setErr] = useState("");
 
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.start_date || !form.end_date) { setErr('Vui lòng chọn ngày bắt đầu và kết thúc.'); return }
+    e.preventDefault();
+    if (!form.start_date || !form.end_date) {
+      setErr("Vui lòng chọn ngày bắt đầu và kết thúc.");
+      return;
+    }
     startTransition(async () => {
-      const res = await fetch('/api/period', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/period", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          ...(copyCriteria && copyFromId ? {
-            copy_criteria_from: copyFromId,
-            ...(copyFromRegion !== 'all' ? { copy_criteria_from_region: copyFromRegion } : {}),
-          } : {}),
+          ...(copyCriteria && copyFromId
+            ? {
+                copy_criteria_from: copyFromId,
+                ...(copyFromRegion !== "all"
+                  ? { copy_criteria_from_region: copyFromRegion }
+                  : {}),
+              }
+            : {}),
         }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setErr(data.error ?? 'Lỗi tạo kỳ.'); return }
-      onCreated(data)
-      onClose()
-    })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error ?? "Lỗi tạo kỳ.");
+        return;
+      }
+      onCreated(data);
+      onClose();
+    });
   }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <span className="modal-title">Tạo kỳ đánh giá mới</span>
-          <button className="modal-close" onClick={onClose}><X size={16} /></button>
+          <button className="modal-close" onClick={onClose}>
+            <X size={16} />
+          </button>
         </div>
         <form className="modal-form" onSubmit={handleSubmit}>
           <div className="cp-row">
             <div className="mf-field" style={{ flex: 1 }}>
-              <label className="mf-label">Quý <span className="mf-required">*</span></label>
-              <select className="mf-input" value={form.quarter}
-                onChange={e => setForm({ ...form, quarter: +e.target.value })}>
-                {[1,2,3,4].map(q => <option key={q} value={q}>Quý {q}</option>)}
+              <label className="mf-label">
+                Quý <span className="mf-required">*</span>
+              </label>
+              <select
+                className="mf-input"
+                value={form.quarter}
+                onChange={(e) => setForm({ ...form, quarter: +e.target.value })}
+              >
+                {[1, 2, 3, 4].map((q) => (
+                  <option key={q} value={q}>
+                    Quý {q}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="mf-field" style={{ flex: 1 }}>
-              <label className="mf-label">Năm <span className="mf-required">*</span></label>
-              <input className="mf-input" type="number" min={2020} max={2099}
+              <label className="mf-label">
+                Năm <span className="mf-required">*</span>
+              </label>
+              <input
+                className="mf-input"
+                type="number"
+                min={2020}
+                max={2099}
                 value={form.year}
-                onChange={e => setForm({ ...form, year: +e.target.value })} />
+                onChange={(e) => setForm({ ...form, year: +e.target.value })}
+              />
             </div>
           </div>
           <div className="cp-row">
             <div className="mf-field" style={{ flex: 1 }}>
-              <label className="mf-label">Bắt đầu <span className="mf-required">*</span></label>
-              <input className="mf-input" type="date" value={form.start_date}
-                onChange={e => setForm({ ...form, start_date: e.target.value })} />
+              <label className="mf-label">
+                Bắt đầu <span className="mf-required">*</span>
+              </label>
+              <input
+                className="mf-input"
+                type="date"
+                value={form.start_date}
+                onChange={(e) =>
+                  setForm({ ...form, start_date: e.target.value })
+                }
+              />
             </div>
             <div className="mf-field" style={{ flex: 1 }}>
-              <label className="mf-label">Kết thúc <span className="mf-required">*</span></label>
-              <input className="mf-input" type="date" value={form.end_date}
-                onChange={e => setForm({ ...form, end_date: e.target.value })} />
+              <label className="mf-label">
+                Kết thúc <span className="mf-required">*</span>
+              </label>
+              <input
+                className="mf-input"
+                type="date"
+                value={form.end_date}
+                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+              />
             </div>
           </div>
           <div className="mf-field">
             <label className="mf-label">Tình trạng ban đầu</label>
-            <select className="mf-input" value={form.status}
-              onChange={e => setForm({ ...form, status: e.target.value as Period['status'] })}>
+            <select
+              className="mf-input"
+              value={form.status}
+              onChange={(e) =>
+                setForm({ ...form, status: e.target.value as Period["status"] })
+              }
+            >
               <option value="draft">Sắp diễn ra</option>
               <option value="open">Đang tiến hành</option>
             </select>
@@ -958,16 +1315,16 @@ function CreatePeriodModal({
                   type="checkbox"
                   className="mf-checkbox"
                   checked={copyCriteria}
-                  onChange={e => setCopyCriteria(e.target.checked)}
+                  onChange={(e) => setCopyCriteria(e.target.checked)}
                 />
                 <span className="mf-copy-label">Sao chép tiêu chí từ kỳ</span>
                 <select
                   className="mf-input mf-copy-select"
                   value={copyFromId}
                   disabled={!copyCriteria}
-                  onChange={e => setCopyFromId(e.target.value)}
+                  onChange={(e) => setCopyFromId(e.target.value)}
                 >
-                  {periods.map(p => (
+                  {periods.map((p) => (
                     <option key={p.id} value={p.id}>
                       Quý {p.quarter} · {p.year}
                     </option>
@@ -977,14 +1334,14 @@ function CreatePeriodModal({
               {copyCriteria && (
                 <div className="mf-copy-region-row">
                   <span className="mf-copy-region-label">Cơ sở:</span>
-                  {(['all', 'Miền Bắc', 'Miền Nam'] as const).map(r => (
+                  {(["all", "Miền Bắc", "Miền Nam"] as const).map((r) => (
                     <button
                       key={r}
                       type="button"
-                      className={`mf-region-tab${copyFromRegion === r ? ' mf-region-tab--active' : ''}`}
+                      className={`mf-region-tab${copyFromRegion === r ? " mf-region-tab--active" : ""}`}
                       onClick={() => setCopyFromRegion(r)}
                     >
-                      {r === 'all' ? 'Tất cả' : r}
+                      {r === "all" ? "Tất cả" : r}
                     </button>
                   ))}
                 </div>
@@ -993,15 +1350,25 @@ function CreatePeriodModal({
           )}
           {err && <p className="mf-error">{err}</p>}
           <div className="mf-actions">
-            <button type="button" className="mf-btn mf-btn--cancel" onClick={onClose}>Huỷ</button>
-            <button type="submit" className="mf-btn mf-btn--save" disabled={isPending}>
-              {isPending ? 'Đang tạo…' : 'Tạo kỳ'}
+            <button
+              type="button"
+              className="mf-btn mf-btn--cancel"
+              onClick={onClose}
+            >
+              Huỷ
+            </button>
+            <button
+              type="submit"
+              className="mf-btn mf-btn--save"
+              disabled={isPending}
+            >
+              {isPending ? "Đang tạo…" : "Tạo kỳ"}
             </button>
           </div>
         </form>
       </div>
     </div>
-  )
+  );
 }
 
 /* ── Main export ───────────────────────────────────── */
@@ -1011,162 +1378,222 @@ export default function CriteriaClient({
   initialCriteria,
   role,
 }: {
-  periods: Period[]
-  initialPeriod: Period | null
-  initialCriteria: Criterion[]
-  role: Role
+  periods: Period[];
+  initialPeriod: Period | null;
+  initialCriteria: Criterion[];
+  role: Role;
 }) {
-  const searchParams = useSearchParams()
-  const [periods, setPeriods] = useState<Period[]>(initialPeriods)
-  const [period, setPeriod] = useState<Period | null>(initialPeriod)
-  const [criteria, setCriteria] = useState<Criterion[]>(initialCriteria)
-  const [showAdd, setShowAdd] = useState(false)
-  const [showImport, setShowImport] = useState(false)
-  const [showCreatePeriod, setShowCreatePeriod] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const searchParams = useSearchParams();
+  const [periods, setPeriods] = useState<Period[]>(initialPeriods);
+  const [period, setPeriod] = useState<Period | null>(initialPeriod);
+  const [criteria, setCriteria] = useState<Criterion[]>(initialCriteria);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showCreatePeriod, setShowCreatePeriod] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  const canEdit = role === 'super_admin'
+  const canEdit = role === "super_admin";
 
-  const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
-  const regionInitialized = useRef(false)
+  const [regionFilter, setRegionFilter] = useState<"Miền Bắc" | "Miền Nam">(
+    "Miền Bắc",
+  );
+  const regionInitialized = useRef(false);
 
-  const [yearFilter, setYearFilter]       = useState<number>(initialPeriod?.year ?? new Date().getFullYear())
-  const [quarterFilter, setQuarterFilter] = useState<number>(initialPeriod?.quarter ?? 1)
+  const [yearFilter, setYearFilter] = useState<number>(
+    initialPeriod?.year ?? new Date().getFullYear(),
+  );
+  const [quarterFilter, setQuarterFilter] = useState<number>(
+    initialPeriod?.quarter ?? 1,
+  );
 
   // Restore last-selected period + region when navigating back
   useEffect(() => {
-    let effectiveRegion: 'Miền Bắc' | 'Miền Nam' = 'Miền Bắc'
+    let effectiveRegion: "Miền Bắc" | "Miền Nam" = "Miền Bắc";
     if (!regionInitialized.current) {
-      regionInitialized.current = true
-      const saved = localStorage.getItem('region_filter') as 'Miền Bắc' | 'Miền Nam' | null
-      if (saved === 'Miền Bắc' || saved === 'Miền Nam') {
-        effectiveRegion = saved
-        setRegionFilter(saved)
+      regionInitialized.current = true;
+      const saved = localStorage.getItem("region_filter") as
+        | "Miền Bắc"
+        | "Miền Nam"
+        | null;
+      if (saved === "Miền Bắc" || saved === "Miền Nam") {
+        effectiveRegion = saved;
+        setRegionFilter(saved);
       }
     }
 
-    if (searchParams.get('periodId')) {
+    if (searchParams.get("periodId")) {
       // URL has explicit period — respect it, but still re-fetch with correct region
-      const pid = searchParams.get('periodId')!
+      const pid = searchParams.get("periodId")!;
       fetch(`/api/criteria?periodId=${pid}&region=${effectiveRegion}`)
-        .then(r => r.json())
-        .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
-        .catch(() => {})
-      return
+        .then((r) => r.json())
+        .then((data: Criterion[]) => {
+          if (Array.isArray(data)) setCriteria(data);
+        })
+        .catch(() => {});
+      return;
     }
 
-    const savedId = localStorage.getItem('criteria_period_id')
-    if (!savedId) return
-    const savedPeriod = periods.find(p => p.id === savedId)
-    if (!savedPeriod || savedPeriod.id === period?.id) return
-    void setSelectedPeriod(savedId)
-    setPeriod(savedPeriod)
-    setCriteria([])
+    const savedId = localStorage.getItem("criteria_period_id");
+    if (!savedId) return;
+    const savedPeriod = periods.find((p) => p.id === savedId);
+    if (!savedPeriod || savedPeriod.id === period?.id) return;
+    void setSelectedPeriod(savedId);
+    setPeriod(savedPeriod);
+    setCriteria([]);
     fetch(`/api/criteria?periodId=${savedId}&region=${effectiveRegion}`)
-      .then(r => r.json())
-      .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
-      .catch(() => {})
-    window.history.replaceState({}, '', `/dashboard/criteria?periodId=${savedId}`)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+      .then((r) => r.json())
+      .then((data: Criterion[]) => {
+        if (Array.isArray(data)) setCriteria(data);
+      })
+      .catch(() => {});
+    window.history.replaceState(
+      {},
+      "",
+      `/dashboard/criteria?periodId=${savedId}`,
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    localStorage.setItem('region_filter', regionFilter)
-  }, [regionFilter])
+    localStorage.setItem("region_filter", regionFilter);
+  }, [regionFilter]);
 
   // Re-fetch criteria whenever region changes (after initial mount)
-  const isFirstRegionRender = useRef(true)
+  const isFirstRegionRender = useRef(true);
   useEffect(() => {
-    if (isFirstRegionRender.current) { isFirstRegionRender.current = false; return }
-    if (!period?.id) return
-    setCriteria([])
+    if (isFirstRegionRender.current) {
+      isFirstRegionRender.current = false;
+      return;
+    }
+    if (!period?.id) return;
+    setCriteria([]);
     fetch(`/api/criteria?periodId=${period.id}&region=${regionFilter}`)
-      .then(r => r.json())
-      .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
-      .catch(() => {})
-  }, [regionFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+      .then((r) => r.json())
+      .then((data: Criterion[]) => {
+        if (Array.isArray(data)) setCriteria(data);
+      })
+      .catch(() => {});
+  }, [regionFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handlePeriodSave(p: Period) {
-    const method = p.id ? 'PUT' : 'POST'
-    const res = await fetch('/api/period', {
+    const method = p.id ? "PUT" : "POST";
+    const res = await fetch("/api/period", {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),
-    })
-    const data = await res.json()
-    if (res.ok) setPeriod(data)
+    });
+    const data = await res.json();
+    if (res.ok) setPeriod(data);
   }
 
   async function handleDeleteCriterion(id: string) {
-    const res = await fetch(`/api/criteria?id=${id}`, { method: 'DELETE' })
-    if (res.ok) setCriteria(prev => prev.filter(c => c.id !== id))
+    const res = await fetch(`/api/criteria?id=${id}`, { method: "DELETE" });
+    if (res.ok) setCriteria((prev) => prev.filter((c) => c.id !== id));
   }
 
-  async function handleUpdateCriterion(id: string, fields: { code: string | null; name: string; notes: string | null; weight: number; input_type: 'manual' | 'auto'; auto_source: string | null }) {
-    const res = await fetch('/api/criteria', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+  async function handleUpdateCriterion(
+    id: string,
+    fields: {
+      code: string | null;
+      name: string;
+      notes: string | null;
+      weight: number;
+      input_type: "manual" | "auto";
+      auto_source: string | null;
+    },
+  ) {
+    const res = await fetch("/api/criteria", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...fields }),
-    })
-    const data = await res.json()
-    if (res.ok) setCriteria(prev => prev.map(c => c.id === id ? { ...c, ...fields, weight: data.weight } : c))
+    });
+    const data = await res.json();
+    if (res.ok)
+      setCriteria((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, ...fields, weight: data.weight } : c,
+        ),
+      );
   }
 
-  function switchPeriod(selectedId: string, newPeriod: Period | null, region?: string) {
-    const effectiveRegion = region ?? regionFilter
-    localStorage.setItem('criteria_period_id', selectedId)
-    void setSelectedPeriod(selectedId)
-    setPeriod(newPeriod)
-    setCriteria([])
-    window.history.replaceState({}, '', `/dashboard/criteria?periodId=${selectedId}`)
+  function switchPeriod(
+    selectedId: string,
+    newPeriod: Period | null,
+    region?: string,
+  ) {
+    const effectiveRegion = region ?? regionFilter;
+    localStorage.setItem("criteria_period_id", selectedId);
+    void setSelectedPeriod(selectedId);
+    setPeriod(newPeriod);
+    setCriteria([]);
+    window.history.replaceState(
+      {},
+      "",
+      `/dashboard/criteria?periodId=${selectedId}`,
+    );
     if (selectedId) {
       fetch(`/api/criteria?periodId=${selectedId}&region=${effectiveRegion}`)
-        .then(r => r.json())
-        .then((data: Criterion[]) => { if (Array.isArray(data)) setCriteria(data) })
-        .catch(() => {})
+        .then((r) => r.json())
+        .then((data: Criterion[]) => {
+          if (Array.isArray(data)) setCriteria(data);
+        })
+        .catch(() => {});
     }
   }
 
   function handlePeriodChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const selectedId = e.target.value
-    const p = periods.find(p => p.id === selectedId) ?? null
-    if (p) { setYearFilter(p.year); setQuarterFilter(p.quarter) }
-    switchPeriod(selectedId, p)
+    const selectedId = e.target.value;
+    const p = periods.find((p) => p.id === selectedId) ?? null;
+    if (p) {
+      setYearFilter(p.year);
+      setQuarterFilter(p.quarter);
+    }
+    switchPeriod(selectedId, p);
   }
 
   function handleYearFilter(year: number) {
-    setYearFilter(year)
-    const match = periods.find(p => p.year === year && p.quarter === quarterFilter)
-      ?? periods.filter(p => p.year === year).sort((a, b) => a.quarter - b.quarter)[0]
-    if (match) { setQuarterFilter(match.quarter); switchPeriod(match.id, match) }
+    setYearFilter(year);
+    const match =
+      periods.find((p) => p.year === year && p.quarter === quarterFilter) ??
+      periods
+        .filter((p) => p.year === year)
+        .sort((a, b) => a.quarter - b.quarter)[0];
+    if (match) {
+      setQuarterFilter(match.quarter);
+      switchPeriod(match.id, match);
+    }
   }
 
   function handleQuarterFilter(quarter: number) {
-    setQuarterFilter(quarter)
-    const match = periods.find(p => p.year === yearFilter && p.quarter === quarter)
-    if (match) switchPeriod(match.id, match)
+    setQuarterFilter(quarter);
+    const match = periods.find(
+      (p) => p.year === yearFilter && p.quarter === quarter,
+    );
+    if (match) switchPeriod(match.id, match);
   }
 
   function handlePeriodCreated(p: Period) {
-    window.location.href = `/dashboard/criteria?periodId=${p.id}`
+    window.location.href = `/dashboard/criteria?periodId=${p.id}`;
   }
 
   async function handlePeriodDelete() {
-    if (!period) return
-    setIsDeleting(true)
-    const res = await fetch(`/api/period?id=${period.id}`, { method: 'DELETE' })
-    setIsDeleting(false)
+    if (!period) return;
+    setIsDeleting(true);
+    const res = await fetch(`/api/period?id=${period.id}`, {
+      method: "DELETE",
+    });
+    setIsDeleting(false);
     if (!res.ok) {
-      const data = await res.json()
-      alert(data.error ?? 'Lỗi xoá kỳ.')
-      return
+      const data = await res.json();
+      alert(data.error ?? "Lỗi xoá kỳ.");
+      return;
     }
-    const newPeriods = periods.filter(p => p.id !== period.id)
-    const next = newPeriods[0] ?? null
+    const newPeriods = periods.filter((p) => p.id !== period.id);
+    const next = newPeriods[0] ?? null;
     if (next) {
-      window.location.href = `/dashboard/criteria?periodId=${next.id}`
+      window.location.href = `/dashboard/criteria?periodId=${next.id}`;
     } else {
-      window.location.href = '/dashboard/criteria'
+      window.location.href = "/dashboard/criteria";
     }
   }
 
@@ -1174,83 +1601,117 @@ export default function CriteriaClient({
     <div className="criteria-root">
       {/* Period selector row */}
       {periods.length > 0 && (
-      <div className="cp-header-row">
-        {/* Year / Quarter dropboxes — all roles */}
-        {(() => {
-          const availableYears = [...new Set(periods.map(p => p.year))].sort((a, b) => b - a)
-          return (
-            <div className="cp-yq-wrap">
-              <div className="cp-select-wrap">
-                <select
-                  className="cp-select"
-                  value={yearFilter}
-                  onChange={e => handleYearFilter(Number(e.target.value))}
-                >
-                  {availableYears.map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-                <ChevronDown size={12} className="cp-select-icon" />
-              </div>
-              <div className="cp-select-wrap">
-                <select
-                  className="cp-select"
-                  value={quarterFilter}
-                  onChange={e => handleQuarterFilter(Number(e.target.value))}
-                >
-                  {[1,2,3,4].map(q => {
-                    const exists = periods.some(p => p.year === yearFilter && p.quarter === q)
-                    return (
-                      <option key={q} value={q} disabled={!exists}>Quý {q}</option>
-                    )
-                  })}
-                </select>
-                <ChevronDown size={12} className="cp-select-icon" />
-              </div>
-            </div>
-          )
-        })()}
-        {canEdit && (
-          <div className="cp-region-tabs">
-            {(['Miền Bắc', 'Miền Nam'] as const).map(r => (
-              <button
-                key={r}
-                className={`cp-region-tab${regionFilter === r ? ' cp-region-tab--active' : ''}`}
-                onClick={() => setRegionFilter(r)}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-        )}
-        {canEdit && (
-          <>
-            <button className="cp-new-btn" onClick={() => setShowCreatePeriod(true)}>
-              <CalendarPlus size={13} /> Tạo kỳ mới
-            </button>
-            {period && (
-              showDeleteConfirm ? (
-                <div className="cp-delete-confirm">
-                  <span className="cp-delete-warn">Xoá kỳ này?</span>
-                  <button className="cp-del-yes" onClick={handlePeriodDelete} disabled={isDeleting}>
-                    {isDeleting ? 'Đang xoá…' : <><Trash2 size={11} /> Xoá</>}
-                  </button>
-                  <button className="cp-del-no" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
-                    <X size={11} /> Huỷ
-                  </button>
+        <div className="cp-header-row">
+          {/* Year / Quarter dropboxes — all roles */}
+          {(() => {
+            const availableYears = [
+              ...new Set(periods.map((p) => p.year)),
+            ].sort((a, b) => b - a);
+            return (
+              <div className="cp-yq-wrap">
+                <div className="cp-select-wrap">
+                  <select
+                    className="cp-select"
+                    value={yearFilter}
+                    onChange={(e) => handleYearFilter(Number(e.target.value))}
+                  >
+                    {availableYears.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} className="cp-select-icon" />
                 </div>
-              ) : (
-                <button className="cp-del-btn" onClick={() => setShowDeleteConfirm(true)} title="Xoá kỳ này">
-                  <Trash2 size={13} />
+                <div className="cp-select-wrap">
+                  <select
+                    className="cp-select"
+                    value={quarterFilter}
+                    onChange={(e) =>
+                      handleQuarterFilter(Number(e.target.value))
+                    }
+                  >
+                    {[1, 2, 3, 4].map((q) => {
+                      const exists = periods.some(
+                        (p) => p.year === yearFilter && p.quarter === q,
+                      );
+                      return (
+                        <option key={q} value={q} disabled={!exists}>
+                          Quý {q}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <ChevronDown size={12} className="cp-select-icon" />
+                </div>
+              </div>
+            );
+          })()}
+          {canEdit && (
+            <div className="cp-region-tabs">
+              {(["Miền Bắc", "Miền Nam"] as const).map((r) => (
+                <button
+                  key={r}
+                  className={`cp-region-tab${regionFilter === r ? " cp-region-tab--active" : ""}`}
+                  onClick={() => setRegionFilter(r)}
+                >
+                  {r}
                 </button>
-              )
-            )}
-          </>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+          {canEdit && (
+            <>
+              <button
+                className="cp-new-btn"
+                onClick={() => setShowCreatePeriod(true)}
+              >
+                <CalendarPlus size={13} /> Tạo kỳ mới
+              </button>
+              {period &&
+                (showDeleteConfirm ? (
+                  <div className="cp-delete-confirm">
+                    <span className="cp-delete-warn">Xoá kỳ này?</span>
+                    <button
+                      className="cp-del-yes"
+                      onClick={handlePeriodDelete}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? (
+                        "Đang xoá…"
+                      ) : (
+                        <>
+                          <Trash2 size={11} /> Xoá
+                        </>
+                      )}
+                    </button>
+                    <button
+                      className="cp-del-no"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={isDeleting}
+                    >
+                      <X size={11} /> Huỷ
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="cp-del-btn"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    title="Xoá kỳ này"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                ))}
+            </>
+          )}
+        </div>
       )}
 
-      <PeriodBanner period={period} canEdit={canEdit} onSave={handlePeriodSave} />
+      <PeriodBanner
+        period={period}
+        canEdit={canEdit}
+        onSave={handlePeriodSave}
+      />
 
       {period && (
         <CriteriaTable
@@ -1275,7 +1736,7 @@ export default function CriteriaClient({
           region={regionFilter}
           nextOrder={criteria.length + 1}
           onClose={() => setShowAdd(false)}
-          onAdded={c => setCriteria(prev => [...prev, c])}
+          onAdded={(c) => setCriteria((prev) => [...prev, c])}
         />
       )}
 
@@ -1285,7 +1746,9 @@ export default function CriteriaClient({
           region={regionFilter}
           quarter={period.quarter}
           onClose={() => setShowImport(false)}
-          onImported={imported => setCriteria(prev => [...prev, ...imported])}
+          onImported={(imported) =>
+            setCriteria((prev) => [...prev, ...imported])
+          }
         />
       )}
 
@@ -1422,9 +1885,9 @@ export default function CriteriaClient({
           text-align: left; white-space: nowrap;
         }
         .ct-th--stt, .ct-th--code, .ct-th--weight, .ct-th--actions { width: 1%; }
-        .ct-th--type { width: 200px; min-width: 200px; }
+        .ct-th--type { width: 90px; min-width: 80px; }
         .ct-th--name { width: 320px; min-width: 220px; }
-        .ct-th--notes { width: 160px; min-width: 120px; }
+        .ct-th--notes { width: 380px; min-width: 260px; }
         .ct-td--name { white-space: normal; word-break: break-word; }
         .ct-row {
           border-top: 1px solid rgba(255,255,255,0.04);
@@ -1845,5 +2308,5 @@ export default function CriteriaClient({
         [data-theme="light"] .cp-region-tab--active { background: #B30000; color: #fff; }
       `}</style>
     </div>
-  )
+  );
 }
