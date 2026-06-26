@@ -145,9 +145,17 @@ export default function MatrixClient({
     [displayDepts]
   )
 
+  // Dept users only see their own entries + entries from depts that have committed
+  const visibleEntries = useMemo(() => {
+    if (canManageAll || role === 'leadership') return entries
+    return entries.filter(e =>
+      e.evaluator_id === myDeptId || committedSet.has(e.evaluator_id)
+    )
+  }, [entries, myDeptId, committedSet, canManageAll, role])
+
   const entrySet = useMemo(
-    () => new Set(entries.map(e => `${e.evaluator_id}:${e.target_id}`)),
-    [entries]
+    () => new Set(visibleEntries.map(e => `${e.evaluator_id}:${e.target_id}`)),
+    [visibleEntries]
   )
 
   function hasEntry(evaluatorId: string, targetId: string) {
@@ -304,21 +312,21 @@ export default function MatrixClient({
   const evaluatingCount = useMemo(() => {
     const map: Record<string, number> = {}
     depts.forEach(d => { map[d.id] = 0 })
-    entries.forEach(e => { map[e.evaluator_id] = (map[e.evaluator_id] ?? 0) + 1 })
+    visibleEntries.forEach(e => { map[e.evaluator_id] = (map[e.evaluator_id] ?? 0) + 1 })
     return map
-  }, [entries, depts])
+  }, [visibleEntries, depts])
 
-  const totalLinks = useMemo(() => entries.length, [entries])
+  const totalLinks = useMemo(() => visibleEntries.length, [visibleEntries])
 
   // My row: depts I'm evaluating (I'm evaluator)
   const myEvaluating = useMemo(
-    () => entries.filter(e => e.evaluator_id === myDeptId),
-    [entries, myDeptId]
+    () => visibleEntries.filter(e => e.evaluator_id === myDeptId),
+    [visibleEntries, myDeptId]
   )
-  // My col: depts that chose me (I'm target)
+  // My col: depts that chose me (I'm target) — only shows committed depts
   const chosenByOthers = useMemo(
-    () => entries.filter(e => e.target_id === myDeptId),
-    [entries, myDeptId]
+    () => visibleEntries.filter(e => e.target_id === myDeptId),
+    [visibleEntries, myDeptId]
   )
 
   const myDisplayRowIndex = myDeptId ? (displayDeptIndex.get(myDeptId) ?? -1) : -1

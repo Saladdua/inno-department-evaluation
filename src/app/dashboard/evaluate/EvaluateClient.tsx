@@ -275,11 +275,12 @@ export default function EvaluateClient({
     })
   }, [draftScores, scoreableCriteria])
 
-  const unsubmittedOthers = useMemo(() => {
+  // Assignments (excluding current) that have never been drafted — block submit-all until these are done
+  const notReadyAssignments = useMemo(() => {
     if (!selectedTargetId) return []
     return assignments
       .filter(a => a.target_id !== selectedTargetId)
-      .filter(a => getEval(a.evaluator_id, a.target_id)?.status !== 'submitted')
+      .filter(a => !getEval(a.evaluator_id, a.target_id))
       .map(a => getDeptName(depts, a.target_id))
   }, [assignments, selectedTargetId, evalByPair, depts]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -341,6 +342,73 @@ export default function EvaluateClient({
 
         setSaveStatus('saved')
         if (submit) setIsEditingMode(false)
+      } catch {
+        setSaveStatus('error')
+      }
+    })
+  }
+
+  function submitAll() {
+    if (!selectedTargetId || !selectedEvaluatorId) return
+    setSaveStatus('saving')
+
+    startTransition(async () => {
+      try {
+        // Submit current form first
+        const currentPayload = buildPayload()
+        const res = await fetch('/api/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            period_id: periodId,
+            evaluator_id: selectedEvaluatorId,
+            target_id: selectedTargetId,
+            scores: currentPayload,
+            submit: true,
+          }),
+        })
+        if (!res.ok) { setSaveStatus('error'); return }
+        const { evaluation: currentEval } = await res.json() as { evaluation: EvaluationRow }
+        setEvaluations(prev => {
+          const idx = prev.findIndex(e => e.evaluator_id === currentEval.evaluator_id && e.target_id === currentEval.target_id)
+          const next = [...prev]
+          if (idx >= 0) next[idx] = currentEval; else next.push(currentEval)
+          return next
+        })
+        setScoresMap(prev => ({
+          ...prev,
+          [currentEval.id]: currentPayload.map(s => ({ evaluation_id: currentEval.id, criteria_id: s.criteria_id, raw_score: s.raw_score, note: s.note })),
+        }))
+
+        // Submit all other drafted evaluations
+        const otherDrafts = assignments
+          .filter(a => a.target_id !== selectedTargetId)
+          .filter(a => getEval(a.evaluator_id, a.target_id)?.status === 'draft')
+
+        for (const a of otherDrafts) {
+          const ev = getEval(a.evaluator_id, a.target_id)!
+          const existingScores = scoresMap[ev.id] ?? []
+          const payload = scoreableCriteria.map(c => {
+            const s = existingScores.find(es => es.criteria_id === c.id)
+            return { criteria_id: c.id, raw_score: s?.raw_score ?? null, note: s?.note ?? null, weight: Number(c.weight) }
+          })
+          const r = await fetch('/api/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ period_id: periodId, evaluator_id: a.evaluator_id, target_id: a.target_id, scores: payload, submit: true }),
+          })
+          if (!r.ok) { setSaveStatus('error'); return }
+          const { evaluation: ne } = await r.json() as { evaluation: EvaluationRow }
+          setEvaluations(prev => {
+            const idx = prev.findIndex(e => e.evaluator_id === ne.evaluator_id && e.target_id === ne.target_id)
+            const next = [...prev]
+            if (idx >= 0) next[idx] = ne; else next.push(ne)
+            return next
+          })
+        }
+
+        setSaveStatus('saved')
+        setIsEditingMode(false)
       } catch {
         setSaveStatus('error')
       }
@@ -608,22 +676,22 @@ export default function EvaluateClient({
                   disabled={isPending || !isEditingMode}
                   title="Lưu bản nháp, chưa nộp chính thức"
                 >
-                  <Save size={13} /> Lưu nháp
+                  <Save size={13} /> Lưu
                 </button>
                 <button
-                  className={`ev-btn ev-btn--primary${!isPending && allScored && isEditingMode && unsubmittedOthers.length > 0 ? ' ev-btn--submit-blocked' : ''}`}
+                  className={`ev-btn ev-btn--primary${!isPending && allScored && isEditingMode && notReadyAssignments.length > 0 ? ' ev-btn--submit-blocked' : ''}`}
                   onClick={() => {
-                    if (unsubmittedOthers.length > 0) {
-                      setPendingSubmitCheck(unsubmittedOthers)
+                    if (notReadyAssignments.length > 0) {
+                      setPendingSubmitCheck(notReadyAssignments)
                     } else {
-                      save(true)
+                      submitAll()
                     }
                   }}
                   disabled={isPending || !allScored || !isEditingMode}
                   title={
                     !isEditingMode ? 'Nhấn Chỉnh sửa để chỉnh lại'
                     : !allScored ? 'Nhập đầy đủ điểm (1–100) trước khi nộp'
-                    : unsubmittedOthers.length > 0 ? `Còn ${unsubmittedOthers.length} phòng ban chưa được đánh giá`
+                    : notReadyAssignments.length > 0 ? `Còn ${notReadyAssignments.length} phòng ban chưa được lưu`
                     : undefined
                   }
                 >
@@ -649,7 +717,7 @@ export default function EvaluateClient({
               <span className="ev-check-title">Chưa thể nộp đánh giá</span>
             </div>
             <p className="ev-check-desc">
-              Bạn cần hoàn thành đánh giá cho tất cả các phòng ban được giao trước khi nộp. Còn {pendingSubmitCheck.length} phòng ban chưa được đánh giá:
+              Vui lòng lưu nháp tất cả các phòng ban trước khi nộp. Còn {pendingSubmitCheck.length} phòng ban chưa được lưu:
             </p>
             <ul className="ev-check-list">
               {pendingSubmitCheck.map((name, i) => <li key={i}>{name}</li>)}
