@@ -120,6 +120,35 @@ export async function PUT(req: Request) {
     .eq('id', id)
     .maybeSingle()
 
+  // Guard: block closing if any evaluation pair is not yet submitted
+  if (fields.status === 'closed' && previous?.status !== 'closed') {
+    const [{ data: matrix }, { data: evaluations }, { data: departments }] = await Promise.all([
+      supabase.from('evaluation_matrix').select('evaluator_id, target_id').eq('period_id', id),
+      supabase.from('evaluations').select('evaluator_id, target_id, status').eq('period_id', id),
+      supabase.from('departments').select('id, name'),
+    ])
+
+    const deptMap = new Map((departments ?? []).map(d => [d.id as string, d.name as string]))
+    const evalsArr = evaluations ?? []
+
+    const incomplete = (matrix ?? []).filter(m => {
+      const match = evalsArr.find(
+        e => e.evaluator_id === m.evaluator_id && e.target_id === m.target_id
+      )
+      return !match || match.status !== 'submitted'
+    })
+
+    if (incomplete.length > 0) {
+      const pairs = incomplete.map(m =>
+        `${deptMap.get(m.evaluator_id) ?? m.evaluator_id} → ${deptMap.get(m.target_id) ?? m.target_id}`
+      )
+      return NextResponse.json(
+        { error: `Chưa thể kết thúc — còn ${incomplete.length} cặp đánh giá chưa hoàn thành.`, incomplete: pairs },
+        { status: 422 }
+      )
+    }
+  }
+
   const { data, error } = await supabase
     .from('evaluation_periods')
     .update(fields)

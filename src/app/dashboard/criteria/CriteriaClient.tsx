@@ -184,11 +184,12 @@ function PeriodBanner({
 }: {
   period: Period | null;
   canEdit: boolean;
-  onSave: (p: Period) => Promise<void>;
+  onSave: (p: Period) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Period | null>(period);
   const [isPending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const current = editing ? draft : period;
 
@@ -201,7 +202,9 @@ function PeriodBanner({
   function handleSave() {
     if (!draft) return;
     startTransition(async () => {
-      await onSave(draft);
+      const err = await onSave(draft);
+      if (err) { setSaveError(err); return; }
+      setSaveError(null);
       setEditing(false);
     });
   }
@@ -283,6 +286,18 @@ function PeriodBanner({
                 <option value="closed">Đã kết thúc</option>
               </select>
             </div>
+            {saveError && (
+              <div className="bf-save-error">
+                <p className="bf-save-error-msg">{saveError.split('\n')[0]}</p>
+                {saveError.includes('\n') && (
+                  <ul className="bf-save-error-list">
+                    {saveError.split('\n').slice(1).map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         ) : current ? (
           <p className="banner-text">
@@ -317,6 +332,7 @@ function PeriodBanner({
                 className="bact-btn bact-btn--cancel"
                 onClick={() => {
                   setDraft(period);
+                  setSaveError(null);
                   setEditing(false);
                 }}
               >
@@ -1475,7 +1491,7 @@ export default function CriteriaClient({
       .catch(() => {});
   }, [regionFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function handlePeriodSave(p: Period) {
+  async function handlePeriodSave(p: Period): Promise<string | null> {
     const method = p.id ? "PUT" : "POST";
     const res = await fetch("/api/period", {
       method,
@@ -1483,7 +1499,13 @@ export default function CriteriaClient({
       body: JSON.stringify(p),
     });
     const data = await res.json();
-    if (res.ok) setPeriod(data);
+    if (!res.ok) {
+      const lines: string[] = [data.error ?? "Lỗi lưu kỳ."];
+      if (Array.isArray(data.incomplete)) lines.push(...(data.incomplete as string[]));
+      return lines.join('\n');
+    }
+    setPeriod(data);
+    return null;
   }
 
   async function handleDeleteCriterion(id: string) {
@@ -1824,6 +1846,20 @@ export default function CriteriaClient({
         .bf-input:focus { border-color: rgba(179,0,0,0.5); }
         .bf-select { cursor: pointer; }
         .bf-select option { background: #1a1a1a; color: #fff; }
+        .bf-save-error {
+          width: 100%;
+          background: rgba(179,0,0,0.12);
+          border: 1px solid rgba(179,0,0,0.35);
+          border-radius: 7px;
+          padding: 10px 14px;
+          font-size: 12px;
+          color: #ff9999;
+          max-height: 160px;
+          overflow-y: auto;
+        }
+        .bf-save-error-msg { margin: 0 0 4px; font-weight: 600; }
+        .bf-save-error-list { margin: 4px 0 0; padding-left: 16px; }
+        .bf-save-error-list li { margin-bottom: 2px; opacity: 0.85; font-family: monospace; font-size: 11px; }
         .banner-actions { display: flex; gap: 8px; flex-shrink: 0; align-items: flex-start; padding-top: 2px; }
         .bact-btn {
           display: inline-flex; align-items: center; gap: 5px;
