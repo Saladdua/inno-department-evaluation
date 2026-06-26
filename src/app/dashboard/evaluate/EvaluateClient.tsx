@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { CheckCircle2, Clock, Circle, ChevronRight, ChevronLeft, Send, Pencil, Menu, Save, X as XIcon, AlertTriangle } from 'lucide-react'
 
 export interface Criterion {
@@ -93,6 +94,7 @@ export default function EvaluateClient({
   isLeader = false,
   autoScores = [],
 }: Props) {
+  const router = useRouter()
   const canManageAll = role === 'super_admin' || role === 'leadership'
 
   const [regionFilter, setRegionFilter] = useState<'Miền Bắc' | 'Miền Nam'>('Miền Bắc')
@@ -131,6 +133,35 @@ export default function EvaluateClient({
     return map
   }, [autoScores])
 
+  // Warn on browser close/refresh when there are unsaved score changes
+  useEffect(() => {
+    if (!hasPendingChanges) return
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasPendingChanges])
+
+  // Intercept in-app navigation links when there are unsaved changes
+  useEffect(() => {
+    if (!hasPendingChanges) return
+    function handleLinkClick(e: MouseEvent) {
+      const link = (e.target as Element).closest('a[href]')
+      if (!link) return
+      const href = (link as HTMLAnchorElement).getAttribute('href')
+      if (!href || href.startsWith('#')) return
+      try {
+        const url = new URL(href, window.location.href)
+        if (url.pathname === window.location.pathname) return
+      } catch { return }
+      e.preventDefault()
+      e.stopPropagation()
+      setPendingNavHref(href)
+      setShowNavWarning(true)
+    }
+    document.addEventListener('click', handleLinkClick, true)
+    return () => document.removeEventListener('click', handleLinkClick, true)
+  }, [hasPendingChanges])
+
   const [mobileShowList, setMobileShowList] = useState(true)
 
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>(() => {
@@ -159,6 +190,10 @@ export default function EvaluateClient({
   const [overMaxId, setOverMaxId] = useState<string | null>(null)
   const [isEditingMode, setIsEditingMode] = useState(true)
   const [pendingSubmitCheck, setPendingSubmitCheck] = useState<string[] | null>(null)
+  const [hasPendingChanges, setHasPendingChanges] = useState(false)
+  const [showNavWarning, setShowNavWarning] = useState(false)
+  const [pendingNavHref, setPendingNavHref] = useState<string | null>(null)
+  const pendingNavAfterSaveRef = useRef<string | null>(null)
 
   const evalByPair = useMemo(() => {
     const map: Record<string, EvaluationRow> = {}
@@ -216,6 +251,7 @@ export default function EvaluateClient({
     setSelectedTargetId(targetId)
     setDraftScores(buildDraftFromEval(selectedEvaluatorId, targetId))
     setSaveStatus('idle')
+    setHasPendingChanges(false)
     const ev = getEval(selectedEvaluatorId, targetId)
     setIsEditingMode(ev?.status !== 'submitted')
     setMobileShowList(false)
@@ -237,6 +273,7 @@ export default function EvaluateClient({
       [criteriaId]: { ...prev[criteriaId], [field]: v },
     }))
     if (saveStatus === 'saved') setSaveStatus('idle')
+    setHasPendingChanges(true)
   }
 
   function handleScoreBlur(criteriaId: string, value: string) {
@@ -341,9 +378,16 @@ export default function EvaluateClient({
         }))
 
         setSaveStatus('saved')
+        setHasPendingChanges(false)
         if (submit) setIsEditingMode(false)
+        if (pendingNavAfterSaveRef.current) {
+          const href = pendingNavAfterSaveRef.current
+          pendingNavAfterSaveRef.current = null
+          router.push(href)
+        }
       } catch {
         setSaveStatus('error')
+        pendingNavAfterSaveRef.current = null
       }
     })
   }
@@ -408,6 +452,7 @@ export default function EvaluateClient({
         }
 
         setSaveStatus('saved')
+        setHasPendingChanges(false)
         setIsEditingMode(false)
       } catch {
         setSaveStatus('error')
@@ -658,10 +703,11 @@ export default function EvaluateClient({
             {/* Actions */}
             {canEdit ? (
               <div className="ev-actions">
-                <span className={`ev-save-msg ${saveStatus === 'saved' ? 'ev-save-msg--ok' : ''} ${saveStatus === 'error' ? 'ev-save-msg--err' : ''}`}>
+                <span className={`ev-save-msg ${hasPendingChanges && saveStatus !== 'saving' ? 'ev-save-msg--pending' : saveStatus === 'saved' ? 'ev-save-msg--ok' : saveStatus === 'error' ? 'ev-save-msg--err' : ''}`}>
                   {saveStatus === 'saving' && 'Đang lưu…'}
-                  {saveStatus === 'saved' && 'Đã lưu'}
+                  {saveStatus === 'saved' && !hasPendingChanges && 'Đã lưu'}
                   {saveStatus === 'error' && 'Lỗi — thử lại'}
+                  {hasPendingChanges && saveStatus !== 'saving' && saveStatus !== 'error' && 'Chưa lưu'}
                 </span>
                 <button
                   className="ev-btn ev-btn--ghost"
@@ -707,6 +753,37 @@ export default function EvaluateClient({
           </div>
         )}
       </div>
+
+      {/* ── Unsaved changes nav warning ── */}
+      {showNavWarning && (
+        <div className="ev-check-overlay" onClick={() => setShowNavWarning(false)}>
+          <div className="ev-check-modal" onClick={e => e.stopPropagation()}>
+            <div className="ev-check-header">
+              <AlertTriangle size={16} className="ev-check-icon" />
+              <span className="ev-check-title">Bạn có thay đổi chưa lưu</span>
+            </div>
+            <p className="ev-check-desc">
+              Điểm bạn vừa nhập chưa được lưu. Nhấn <strong>Lưu rồi rời</strong> để lưu trước khi chuyển trang.
+            </p>
+            <div className="ev-check-actions">
+              <button
+                className="ev-btn ev-btn--draft"
+                disabled={isPending}
+                onClick={() => {
+                  if (pendingNavHref) pendingNavAfterSaveRef.current = pendingNavHref
+                  setShowNavWarning(false)
+                  save(false)
+                }}
+              >
+                <Save size={13} /> Lưu rồi rời
+              </button>
+              <button className="ev-btn ev-btn--ghost" onClick={() => setShowNavWarning(false)}>
+                <XIcon size={13} /> Ở lại
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Incomplete assignments popup ── */}
       {pendingSubmitCheck && (
@@ -1103,6 +1180,11 @@ export default function EvaluateClient({
         }
         .ev-save-msg--ok { color: #4ade80; }
         .ev-save-msg--err { color: #f87171; }
+        .ev-save-msg--pending {
+          color: rgba(251,191,36,0.9); font-style: normal; font-weight: 600;
+          animation: evPulse 1.8s ease-in-out infinite;
+        }
+        @keyframes evPulse { 0%,100% { opacity:0.9; } 50% { opacity:0.45; } }
 
         .ev-btn {
           display: inline-flex;
@@ -1234,6 +1316,7 @@ export default function EvaluateClient({
         [data-theme="light"] .ev-total { color: rgba(0,0,0,0.35); }
         [data-theme="light"] .ev-actions { border-top-color: rgba(0,0,0,0.07); background: rgba(0,0,0,0.015); }
         [data-theme="light"] .ev-save-msg { color: rgba(0,0,0,0.4); }
+        [data-theme="light"] .ev-save-msg--pending { color: #a07800; }
         [data-theme="light"] .ev-btn--ghost { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.6); }
         [data-theme="light"] .ev-read-only-msg { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); color: rgba(0,0,0,0.4); }
 
