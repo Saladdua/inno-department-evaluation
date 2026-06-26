@@ -837,16 +837,6 @@ export default function MatrixClient({
               >
                 <Send size={13} /> Xác nhận rồi rời
               </button>
-              <button
-                className="mx-btn mx-btn--ghost"
-                onClick={() => {
-                  setHasPendingChanges(false)
-                  setShowNavWarning(false)
-                  if (pendingNavHref) router.push(pendingNavHref)
-                }}
-              >
-                Rời mà không xác nhận
-              </button>
               <button className="mx-btn mx-btn--danger" style={{ marginLeft: 'auto' }} onClick={() => setShowNavWarning(false)}>
                 Ở lại
               </button>
