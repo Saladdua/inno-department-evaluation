@@ -133,35 +133,6 @@ export default function EvaluateClient({
     return map
   }, [autoScores])
 
-  // Warn on browser close/refresh when there are unsaved score changes
-  useEffect(() => {
-    if (!hasPendingChanges) return
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [hasPendingChanges])
-
-  // Intercept in-app navigation links when there are unsaved changes
-  useEffect(() => {
-    if (!hasPendingChanges) return
-    function handleLinkClick(e: MouseEvent) {
-      const link = (e.target as Element).closest('a[href]')
-      if (!link) return
-      const href = (link as HTMLAnchorElement).getAttribute('href')
-      if (!href || href.startsWith('#')) return
-      try {
-        const url = new URL(href, window.location.href)
-        if (url.pathname === window.location.pathname) return
-      } catch { return }
-      e.preventDefault()
-      e.stopPropagation()
-      setPendingNavHref(href)
-      setShowNavWarning(true)
-    }
-    document.addEventListener('click', handleLinkClick, true)
-    return () => document.removeEventListener('click', handleLinkClick, true)
-  }, [hasPendingChanges])
-
   const [mobileShowList, setMobileShowList] = useState(true)
 
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<string>(() => {
@@ -194,6 +165,35 @@ export default function EvaluateClient({
   const [showNavWarning, setShowNavWarning] = useState(false)
   const [pendingNavHref, setPendingNavHref] = useState<string | null>(null)
   const pendingNavAfterSaveRef = useRef<string | null>(null)
+
+  // Warn on browser close/refresh when there are unsaved score changes
+  useEffect(() => {
+    if (!hasPendingChanges) return
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasPendingChanges])
+
+  // Intercept in-app navigation links when there are unsaved changes
+  useEffect(() => {
+    if (!hasPendingChanges) return
+    function handleLinkClick(e: MouseEvent) {
+      const link = (e.target as Element).closest('a[href]')
+      if (!link) return
+      const href = (link as HTMLAnchorElement).getAttribute('href')
+      if (!href || href.startsWith('#')) return
+      try {
+        const url = new URL(href, window.location.href)
+        if (url.pathname === window.location.pathname) return
+      } catch { return }
+      e.preventDefault()
+      e.stopPropagation()
+      setPendingNavHref(href)
+      setShowNavWarning(true)
+    }
+    document.addEventListener('click', handleLinkClick, true)
+    return () => document.removeEventListener('click', handleLinkClick, true)
+  }, [hasPendingChanges])
 
   const evalByPair = useMemo(() => {
     const map: Record<string, EvaluationRow> = {}
