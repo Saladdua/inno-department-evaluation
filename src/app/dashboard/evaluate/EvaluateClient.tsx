@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
-import { CheckCircle2, Clock, Circle, ChevronRight, ChevronLeft, Send, Pencil, Menu } from 'lucide-react'
+import { CheckCircle2, Clock, Circle, ChevronRight, ChevronLeft, Send, Pencil, Menu, Save, X as XIcon, AlertTriangle } from 'lucide-react'
 
 export interface Criterion {
   id: string
@@ -158,6 +158,7 @@ export default function EvaluateClient({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [overMaxId, setOverMaxId] = useState<string | null>(null)
   const [isEditingMode, setIsEditingMode] = useState(true)
+  const [pendingSubmitCheck, setPendingSubmitCheck] = useState<string[] | null>(null)
 
   const evalByPair = useMemo(() => {
     const map: Record<string, EvaluationRow> = {}
@@ -273,6 +274,14 @@ export default function EvaluateClient({
       return v !== '' && !isNaN(parseFloat(v))
     })
   }, [draftScores, scoreableCriteria])
+
+  const unsubmittedOthers = useMemo(() => {
+    if (!selectedTargetId) return []
+    return assignments
+      .filter(a => a.target_id !== selectedTargetId)
+      .filter(a => getEval(a.evaluator_id, a.target_id)?.status !== 'submitted')
+      .map(a => getDeptName(depts, a.target_id))
+  }, [assignments, selectedTargetId, evalByPair, depts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function buildPayload() {
     return scoreableCriteria.map(c => ({
@@ -594,10 +603,29 @@ export default function EvaluateClient({
                   <Pencil size={13} /> Chỉnh sửa
                 </button>
                 <button
-                  className="ev-btn ev-btn--primary"
-                  onClick={() => save(true)}
+                  className="ev-btn ev-btn--draft"
+                  onClick={() => save(false)}
+                  disabled={isPending || !isEditingMode}
+                  title="Lưu bản nháp, chưa nộp chính thức"
+                >
+                  <Save size={13} /> Lưu nháp
+                </button>
+                <button
+                  className={`ev-btn ev-btn--primary${!isPending && allScored && isEditingMode && unsubmittedOthers.length > 0 ? ' ev-btn--submit-blocked' : ''}`}
+                  onClick={() => {
+                    if (unsubmittedOthers.length > 0) {
+                      setPendingSubmitCheck(unsubmittedOthers)
+                    } else {
+                      save(true)
+                    }
+                  }}
                   disabled={isPending || !allScored || !isEditingMode}
-                  title={!isEditingMode ? 'Nhấn Chỉnh sửa để chỉnh lại' : !allScored ? 'Nhập đầy đủ điểm (1–100) trước khi nộp' : undefined}
+                  title={
+                    !isEditingMode ? 'Nhấn Chỉnh sửa để chỉnh lại'
+                    : !allScored ? 'Nhập đầy đủ điểm (1–100) trước khi nộp'
+                    : unsubmittedOthers.length > 0 ? `Còn ${unsubmittedOthers.length} phòng ban chưa được đánh giá`
+                    : undefined
+                  }
                 >
                   <Send size={13} /> Nộp đánh giá
                 </button>
@@ -611,6 +639,29 @@ export default function EvaluateClient({
           </div>
         )}
       </div>
+
+      {/* ── Incomplete assignments popup ── */}
+      {pendingSubmitCheck && (
+        <div className="ev-check-overlay" onClick={() => setPendingSubmitCheck(null)}>
+          <div className="ev-check-modal" onClick={e => e.stopPropagation()}>
+            <div className="ev-check-header">
+              <AlertTriangle size={16} className="ev-check-icon" />
+              <span className="ev-check-title">Chưa thể nộp đánh giá</span>
+            </div>
+            <p className="ev-check-desc">
+              Bạn cần hoàn thành đánh giá cho tất cả các phòng ban được giao trước khi nộp. Còn {pendingSubmitCheck.length} phòng ban chưa được đánh giá:
+            </p>
+            <ul className="ev-check-list">
+              {pendingSubmitCheck.map((name, i) => <li key={i}>{name}</li>)}
+            </ul>
+            <div className="ev-check-actions">
+              <button className="ev-btn ev-btn--ghost" onClick={() => setPendingSubmitCheck(null)}>
+                <XIcon size={13} /> Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .ev-root {
@@ -1010,6 +1061,20 @@ export default function EvaluateClient({
         }
         .ev-btn--ghost:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
 
+        .ev-btn--submit-blocked {
+          opacity: 0.45;
+          cursor: not-allowed;
+          box-shadow: none;
+        }
+        .ev-btn--submit-blocked:hover { transform: none !important; box-shadow: none !important; }
+
+        .ev-btn--draft {
+          background: rgba(251,191,36,0.1);
+          color: rgba(251,191,36,0.85);
+          border: 1px solid rgba(251,191,36,0.2);
+        }
+        .ev-btn--draft:hover:not(:disabled) { background: rgba(251,191,36,0.17); color: #fbbf24; }
+
         .ev-btn--primary {
           background: #B30000;
           color: #fff;
@@ -1019,6 +1084,41 @@ export default function EvaluateClient({
           background: #cc0000;
           box-shadow: 0 6px 28px rgba(179,0,0,0.45);
         }
+
+        /* ── Incomplete check popup ── */
+        .ev-check-overlay {
+          position: fixed; inset: 0; z-index: 200;
+          background: rgba(0,0,0,0.55); backdrop-filter: blur(3px);
+          display: flex; align-items: center; justify-content: center;
+        }
+        .ev-check-modal {
+          background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 14px; padding: 24px 28px; max-width: 380px; width: 90%;
+          box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+          display: flex; flex-direction: column; gap: 14px;
+        }
+        .ev-check-header { display: flex; align-items: center; gap: 10px; }
+        .ev-check-icon { color: #fbbf24; flex-shrink: 0; }
+        .ev-check-title { font-size: 15px; font-weight: 600; color: #fff; }
+        .ev-check-desc { margin: 0; font-size: 13px; color: rgba(255,255,255,0.55); }
+        .ev-check-list {
+          margin: 0; padding: 10px 14px;
+          background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 8px; list-style: none; display: flex; flex-direction: column; gap: 4px;
+          max-height: 180px; overflow-y: auto;
+        }
+        .ev-check-list li { font-size: 13px; color: rgba(255,255,255,0.75); padding: 2px 0; }
+        .ev-check-list li::before { content: "·  "; color: rgba(179,0,0,0.7); font-weight: 700; }
+        .ev-check-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        [data-theme="light"] .ev-check-modal {
+          background: #fff; border-color: rgba(0,0,0,0.1);
+          box-shadow: 0 24px 60px rgba(0,0,0,0.15);
+        }
+        [data-theme="light"] .ev-check-title { color: #1a1a1a; }
+        [data-theme="light"] .ev-check-desc { color: rgba(0,0,0,0.5); }
+        [data-theme="light"] .ev-check-list { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); }
+        [data-theme="light"] .ev-check-list li { color: rgba(0,0,0,0.75); }
+        [data-theme="light"] .ev-btn--draft { background: rgba(180,130,0,0.08); color: #92680a; border-color: rgba(180,130,0,0.2); }
 
         .ev-read-only-msg {
           padding: 12px 16px;
