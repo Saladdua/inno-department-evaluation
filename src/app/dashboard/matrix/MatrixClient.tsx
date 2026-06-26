@@ -725,7 +725,7 @@ export default function MatrixClient({
           <div className="mx-commit-header">
             <span className="mx-commit-title">Tình trạng xác nhận ma trận</span>
             <span className="mx-commit-sub">
-              {displayDepts.filter(d => committedSet.has(d.id)).length}/{displayDepts.length} phòng đã xác nhận
+              {displayDepts.filter((d, i) => committedSet.has(d.id) || i === displayDepts.length - 1).length}/{displayDepts.length} phòng đã xác nhận
             </span>
           </div>
           <div className="mx-commit-table-wrap">
@@ -738,8 +738,9 @@ export default function MatrixClient({
                 </tr>
               </thead>
               <tbody>
-                {displayDepts.map(d => {
-                  const committed = committedSet.has(d.id)
+                {displayDepts.map((d, i) => {
+                  const isLastInRegion = i === displayDepts.length - 1
+                  const committed = committedSet.has(d.id) || isLastInRegion
                   const count = rawEvaluatingCount[d.id] ?? 0
                   return (
                     <tr key={d.id} className={`mx-ctr ${committed ? 'mx-ctr--committed' : ''}`}>
