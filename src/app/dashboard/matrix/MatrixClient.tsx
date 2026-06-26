@@ -80,6 +80,9 @@ export default function MatrixClient({
   const [isEditing, setIsEditing] = useState(!myDeptHasCommitted)
   const [isCommitting, startCommitting] = useTransition()
   const [commitStatus, setCommitStatus] = useState<'idle' | 'ok' | 'err'>('idle')
+  const [hasPendingChanges, setHasPendingChanges] = useState(false)
+  const [showNavWarning, setShowNavWarning] = useState(false)
+  const [pendingNavHref, setPendingNavHref] = useState<string | null>(null)
 
   // Reorder state
   const [showGuide, setShowGuide] = useState(!myDeptHasCommitted)
@@ -128,6 +131,38 @@ export default function MatrixClient({
     localStorage.setItem('region_filter', regionFilter)
   }, [regionFilter])
 
+  // Warn on browser tab close / refresh when dept has uncommitted changes
+  useEffect(() => {
+    if (!hasPendingChanges) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasPendingChanges])
+
+  // Intercept in-app navigation (sidebar/header links) when dept has uncommitted changes
+  useEffect(() => {
+    if (!hasPendingChanges) return
+    function handleLinkClick(e: MouseEvent) {
+      const link = (e.target as Element).closest('a[href]')
+      if (!link) return
+      const href = (link as HTMLAnchorElement).getAttribute('href')
+      if (!href || href.startsWith('#')) return
+      try {
+        const url = new URL(href, window.location.href)
+        if (url.pathname === window.location.pathname) return
+      } catch { return }
+      e.preventDefault()
+      e.stopPropagation()
+      setPendingNavHref(href)
+      setShowNavWarning(true)
+    }
+    document.addEventListener('click', handleLinkClick, true)
+    return () => document.removeEventListener('click', handleLinkClick, true)
+  }, [hasPendingChanges])
+
   const displayDepts = useMemo(
     () => depts.filter(d => (d.region ?? 'Miền Bắc') === regionFilter),
     [depts, regionFilter]
@@ -145,13 +180,12 @@ export default function MatrixClient({
     [displayDepts]
   )
 
-  // Dept users only see their own entries + entries from depts that have committed
+  // Everyone only sees entries from depts that have committed (+ their own uncommitted selections)
   const visibleEntries = useMemo(() => {
-    if (canManageAll || role === 'leadership') return entries
     return entries.filter(e =>
       e.evaluator_id === myDeptId || committedSet.has(e.evaluator_id)
     )
-  }, [entries, myDeptId, committedSet, canManageAll, role])
+  }, [entries, myDeptId, committedSet])
 
   const entrySet = useMemo(
     () => new Set(visibleEntries.map(e => `${e.evaluator_id}:${e.target_id}`)),
@@ -197,6 +231,8 @@ export default function MatrixClient({
         e => !(e.evaluator_id === evaluatorId && e.target_id === targetId)
       ))
     }
+
+    if (role === 'department') setHasPendingChanges(true)
 
     startTransition(async () => {
       const res = await fetch('/api/matrix', {
@@ -284,6 +320,7 @@ export default function MatrixClient({
         setCommittedSet(prev => new Set([...prev, myDeptId]))
         setIsEditing(false)
         setCommitStatus('ok')
+        setHasPendingChanges(false)
       } else {
         setCommitStatus('err')
       }
@@ -302,19 +339,28 @@ export default function MatrixClient({
         setCommittedSet(prev => { const s = new Set(prev); s.delete(myDeptId); return s })
         setIsEditing(true)
         setCommitStatus('idle')
+        setHasPendingChanges(false)
       } else {
         setCommitStatus('err')
       }
     })
   }
 
-  // Count how many depts each evaluator is evaluating
+  // Count how many depts each evaluator is evaluating (visible/committed only — for the matrix grid)
   const evaluatingCount = useMemo(() => {
     const map: Record<string, number> = {}
     depts.forEach(d => { map[d.id] = 0 })
     visibleEntries.forEach(e => { map[e.evaluator_id] = (map[e.evaluator_id] ?? 0) + 1 })
     return map
   }, [visibleEntries, depts])
+
+  // Raw count (all entries, regardless of commit) — used in admin management table
+  const rawEvaluatingCount = useMemo(() => {
+    const map: Record<string, number> = {}
+    depts.forEach(d => { map[d.id] = 0 })
+    entries.forEach(e => { map[e.evaluator_id] = (map[e.evaluator_id] ?? 0) + 1 })
+    return map
+  }, [entries, depts])
 
   const totalLinks = useMemo(() => visibleEntries.length, [visibleEntries])
 
@@ -649,9 +695,9 @@ export default function MatrixClient({
             {/* ── Commit / Edit bar ── */}
             {showCommitBar && (
               <div className="mx-commit-bar">
-                <span className={`mx-commit-msg ${commitStatus === 'ok' ? 'mx-commit-msg--ok' : ''} ${commitStatus === 'err' ? 'mx-commit-msg--err' : ''}`}>
-                  {myDeptHasCommitted && !isEditing ? 'Đã xác nhận' : ''}
-                  {commitStatus === 'err' ? 'Lỗi — thử lại' : ''}
+                <span className={`mx-commit-msg ${hasPendingChanges ? 'mx-commit-msg--pending' : commitStatus === 'ok' ? 'mx-commit-msg--ok' : commitStatus === 'err' ? 'mx-commit-msg--err' : ''}`}>
+                  {hasPendingChanges ? 'Chưa xác nhận' : myDeptHasCommitted && !isEditing ? 'Đã xác nhận' : ''}
+                  {!hasPendingChanges && commitStatus === 'err' ? 'Lỗi — thử lại' : ''}
                 </span>
                 <button
                   className={`mx-btn ${!isEditing ? 'mx-btn--edit' : 'mx-btn--ghost'}`}
@@ -694,7 +740,7 @@ export default function MatrixClient({
               <tbody>
                 {displayDepts.map(d => {
                   const committed = committedSet.has(d.id)
-                  const count = evaluatingCount[d.id] ?? 0
+                  const count = rawEvaluatingCount[d.id] ?? 0
                   return (
                     <tr key={d.id} className={`mx-ctr ${committed ? 'mx-ctr--committed' : ''}`}>
                       <td className="mx-ctd">
@@ -764,6 +810,45 @@ export default function MatrixClient({
               </button>
               <button className="mx-btn mx-btn--ghost" onClick={() => setReorderOpen(false)}>
                 Huỷ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Navigation warning modal (uncommitted dept changes) ── */}
+      {showNavWarning && (
+        <div className="mx-overlay" onClick={() => setShowNavWarning(false)}>
+          <div className="mx-modal" onClick={e => e.stopPropagation()}>
+            <div className="mx-modal-header">
+              <span className="mx-modal-title">Bạn có thay đổi chưa xác nhận</span>
+              <button className="mx-modal-close" onClick={() => setShowNavWarning(false)}>
+                <X size={14} />
+              </button>
+            </div>
+            <p className="mx-modal-hint mx-navwarn-body">
+              Lựa chọn ma trận đã được lưu tạm nhưng <strong>chưa xác nhận</strong>. Phòng ban khác sẽ chưa thấy cho đến khi bạn nhấn <strong>&quot;Xác nhận ma trận&quot;</strong>.
+            </p>
+            <div className="mx-modal-footer">
+              <button
+                className="mx-btn mx-btn--commit"
+                disabled={isCommitting}
+                onClick={() => { setShowNavWarning(false); handleCommit() }}
+              >
+                <Send size={13} /> Xác nhận rồi rời
+              </button>
+              <button
+                className="mx-btn mx-btn--ghost"
+                onClick={() => {
+                  setHasPendingChanges(false)
+                  setShowNavWarning(false)
+                  if (pendingNavHref) router.push(pendingNavHref)
+                }}
+              >
+                Rời mà không xác nhận
+              </button>
+              <button className="mx-btn mx-btn--danger" style={{ marginLeft: 'auto' }} onClick={() => setShowNavWarning(false)}>
+                Ở lại
               </button>
             </div>
           </div>
@@ -991,6 +1076,16 @@ export default function MatrixClient({
         }
         .mx-commit-msg--ok { color: #4ade80; font-style: normal; font-weight: 600; }
         .mx-commit-msg--err { color: #f87171; }
+        .mx-commit-msg--pending {
+          color: rgba(251,191,36,0.9); font-style: normal; font-weight: 600;
+          animation: mxPulse 1.8s ease-in-out infinite;
+        }
+        @keyframes mxPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.45; } }
+        .mx-navwarn-body {
+          padding: 14px 20px 6px; color: rgba(255,255,255,0.6); font-size: 12.5px;
+          font-style: normal; line-height: 1.6;
+        }
+        .mx-navwarn-body strong { color: rgba(251,191,36,0.9); }
 
         /* Commit status table (admin) */
         .mx-commit-section {
@@ -1203,6 +1298,9 @@ export default function MatrixClient({
         [data-theme="light"] .mx-commit-badge--pending { background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.35); border-color: rgba(0,0,0,0.08); }
         [data-theme="light"] .mx-commit-bar { border-top-color: rgba(0,0,0,0.07); }
         [data-theme="light"] .mx-commit-msg { color: rgba(0,0,0,0.3); }
+        [data-theme="light"] .mx-commit-msg--pending { color: #a07800; }
+        [data-theme="light"] .mx-navwarn-body { color: rgba(0,0,0,0.6); }
+        [data-theme="light"] .mx-navwarn-body strong { color: #a07800; }
         [data-theme="light"] .mx-guide { background: rgba(179,0,0,0.02); border-color: rgba(179,0,0,0.12); }
         [data-theme="light"] .mx-guide-toggle { color: rgba(179,0,0,0.8); }
         [data-theme="light"] .mx-guide-body { border-top-color: rgba(179,0,0,0.08); }
