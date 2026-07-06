@@ -59,8 +59,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   }
 
-  const canManageAll = user.role === 'super_admin' || user.role === 'leadership'
-  if (!canManageAll && user.departmentId !== evaluator_id) {
+  if (user.role === 'department' && user.departmentId !== evaluator_id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (user.role === 'leadership' && user.id !== evaluator_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -72,6 +74,30 @@ export async function POST(req: Request) {
     .select('status')
     .eq('id', period_id)
     .maybeSingle()
+  if (user.role === 'department') {
+    const { data: assignment } = await supabase
+      .from('evaluation_matrix')
+      .select('id')
+      .eq('period_id', period_id)
+      .eq('evaluator_id', evaluator_id)
+      .eq('target_id', target_id)
+      .maybeSingle()
+    if (!assignment) {
+      return NextResponse.json({ error: 'Phòng ban chỉ được đánh giá các nhóm trong ma trận đã phân công.' }, { status: 403 })
+    }
+  }
+
+  if (user.role === 'leadership') {
+    const [{ data: leader }, { data: targetDept }] = await Promise.all([
+      supabase.from('users').select('region').eq('id', user.id).maybeSingle(),
+      supabase.from('departments').select('region').eq('id', target_id).maybeSingle(),
+    ])
+    const leaderRegion = leader?.region ?? 'Miền Bắc'
+    const targetRegion = targetDept?.region ?? 'Miền Bắc'
+    if (!targetDept || leaderRegion !== targetRegion) {
+      return NextResponse.json({ error: 'Lãnh đạo chỉ được đánh giá các nhóm thuộc miền của mình.' }, { status: 403 })
+    }
+  }
   if (periodCheck?.status === 'closed') {
     return NextResponse.json({ error: 'Kỳ đánh giá đã tổng kết, không thể chỉnh sửa.' }, { status: 403 })
   }

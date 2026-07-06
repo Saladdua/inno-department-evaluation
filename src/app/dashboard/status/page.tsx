@@ -95,10 +95,17 @@ export default async function StatusPage() {
     }
   })
 
-  const deptIds   = new Set(depts.map(d => d.id))
-  const totalTasks = matrix.length + totalLeaderTasks
-  const submittedCount  = evals.filter(e => e.status === 'submitted').length
-  const draftCount      = evals.filter(e => e.status === 'draft').length
+  const requiredTaskKeys = new Set(matrix.map(m => `${m.evaluator_id}:${m.target_id}`))
+  for (const l of rawLeaders) {
+    const region = l.region ?? 'Miá»n Báº¯c'
+    for (const dept of depts.filter(d => (d.region ?? 'Miá»n Báº¯c') === region)) {
+      requiredTaskKeys.add(`${l.id}:${dept.id}`)
+    }
+  }
+  const requiredEvals = evals.filter(e => requiredTaskKeys.has(`${e.evaluator_id}:${e.target_id}`))
+  const totalTasks = requiredTaskKeys.size
+  const submittedCount = requiredEvals.filter(e => e.status === 'submitted').length
+  const draftCount = requiredEvals.filter(e => e.status === 'draft').length
   const notStartedCount = Math.max(0, totalTasks - submittedCount - draftCount)
 
   const overall: OverallStats = { totalTasks, submittedCount, draftCount, notStartedCount }
@@ -159,7 +166,7 @@ export default async function StatusPage() {
       const [criteriaRes, submittedEvalsRes] = await Promise.all([
         supabase
           .from('criteria')
-          .select('id, code, name, input_type')
+          .select('id, code, name, weight, input_type')
           .eq('period_id', period.id)
           .eq('region', region)
           .order('display_order'),
@@ -174,12 +181,13 @@ export default async function StatusPage() {
       ])
 
       const regionCriteria: LeaderCriterion[] = (criteriaRes.data ?? []).map(c => ({
-        id: c.id,
-        code: c.code ?? null,
-        name: c.name,
-        input_type: c.input_type as 'manual' | 'auto',
-        region,
-      }))
+          id: c.id,
+          code: c.code ?? null,
+          name: c.name,
+          weight: Number(c.weight),
+          input_type: c.input_type as 'manual' | 'auto',
+          region,
+        }))
       leaderCriteriaData.push(...regionCriteria)
 
       const submittedEvals = (submittedEvalsRes.data ?? []) as { id: string; target_id: string }[]
@@ -216,14 +224,18 @@ export default async function StatusPage() {
           }
           const rawArr = deptScores
             .filter(s => s.criteria_id === c.id && s.raw_score != null)
-            .map(s => s.raw_score as number)
+            .map(s => Number(s.raw_score))
           const avg = rawArr.length > 0 ? rawArr.reduce((a, b) => a + b, 0) / rawArr.length : null
           return { criteriaId: c.id, avgScore: avg != null ? Math.round(avg * 10) / 10 : null }
         })
 
-        const validAvgs = criteriaScores.map(s => s.avgScore).filter((s): s is number => s != null)
-        const avgTotal = validAvgs.length > 0
-          ? Math.round((validAvgs.reduce((a, b) => a + b, 0) / validAvgs.length) * 10) / 10
+        const totalWeight = regionCriteria.reduce((sum, c) => sum + c.weight, 0)
+        const hasAnyScore = submittedEvals.length > 0 || criteriaScores.some(s => s.avgScore != null)
+        const avgTotal = totalWeight > 0 && hasAnyScore
+          ? Math.round((regionCriteria.reduce((sum, c) => {
+              const score = criteriaScores.find(s => s.criteriaId === c.id)?.avgScore
+              return sum + (score ?? 0) * c.weight
+            }, 0) / totalWeight) * 10) / 10
           : null
 
         regionResults.push({ deptId: dept.id, deptName: dept.name, deptCode: dept.code ?? null, criteriaScores, avgTotal, region })
@@ -257,8 +269,6 @@ export default async function StatusPage() {
     const crits = criteriaRes.data ?? []
     deptMaxScore = crits.reduce((s, c) => s + Number(c.weight) * 10, 0)
     const submittedEvals = targetEvalsRes.data ?? []
-    const rawTotals = submittedEvals.map(e => e.total_score).filter((s): s is number => s != null)
-    deptAvgScore = rawTotals.length > 0 ? rawTotals.reduce((a, b) => a + b, 0) / rawTotals.length : null
 
     const evalIds = submittedEvals.map(e => e.id)
     let evalScores: { evaluation_id: string; criteria_id: string; raw_score: number | null }[] = []
@@ -278,10 +288,19 @@ export default async function StatusPage() {
         const entry = autoScoresDept.find(s => s.criteria_id === c.id)
         return { id: c.id, code: c.code ?? null, name: c.name, avgScore: entry?.raw_score ?? null, input_type: 'auto' as const }
       }
-      const scoreArr = evalScores.filter(s => s.criteria_id === c.id && s.raw_score != null).map(s => s.raw_score as number)
+      const scoreArr = evalScores.filter(s => s.criteria_id === c.id && s.raw_score != null).map(s => Number(s.raw_score))
       const avg = scoreArr.length > 0 ? Math.round((scoreArr.reduce((a, b) => a + b, 0) / scoreArr.length) * 10) / 10 : null
       return { id: c.id, code: c.code ?? null, name: c.name, avgScore: avg, input_type: 'manual' as const }
     })
+
+    const totalWeight = crits.reduce((sum, c) => sum + Number(c.weight), 0)
+    const hasAnyScore = submittedEvals.length > 0 || deptCriteriaScores.some(c => c.avgScore != null)
+    deptAvgScore = totalWeight > 0 && hasAnyScore
+      ? deptCriteriaScores.reduce((sum, c) => {
+          const criterion = crits.find(crit => crit.id === c.id)
+          return sum + (c.avgScore ?? 0) * Number(criterion?.weight ?? 0)
+        }, 0) / totalWeight
+      : null
   }
 
   return (

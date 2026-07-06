@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/auth-helpers'
 import { createServiceClient } from '@/lib/supabase/server'
+import { completionErrorMessage, getEvaluationCompletion } from '@/lib/evaluation-completion'
+
+const DEFAULT_REGION = 'Miền Bắc'
 
 // GET /api/close-period?periodId=X
 // Returns all period data (raw + computed results) for export.
@@ -16,6 +19,29 @@ export async function GET(req: Request) {
 
   const supabase = createServiceClient()
 
+  try {
+    const completion = await getEvaluationCompletion(supabase, periodId)
+    if (completion.incomplete.length > 0) {
+      const pairs = completion.incomplete
+        .slice(0, 50)
+        .map(task => `${task.evaluatorName} -> ${task.targetName}`)
+      return NextResponse.json(
+        {
+          error: completionErrorMessage(completion.incomplete.length),
+          incomplete: pairs,
+          totalRequired: completion.totalRequired,
+          submittedRequired: completion.submittedRequired,
+        },
+        { status: 422 }
+      )
+    }
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Không kiểm tra được tiến độ đánh giá.' },
+      { status: 500 }
+    )
+  }
+
   const [
     { data: period },
     { data: criteria },
@@ -23,7 +49,7 @@ export async function GET(req: Request) {
     { data: matrix },
     { data: evaluations },
     { data: autoScores },
-    leaderCountResult,
+    { data: leaders },
   ] = await Promise.all([
     supabase.from('evaluation_periods').select('*').eq('id', periodId).maybeSingle(),
     supabase.from('criteria').select('*').eq('period_id', periodId).order('display_order'),
@@ -31,7 +57,7 @@ export async function GET(req: Request) {
     supabase.from('evaluation_matrix').select('*').eq('period_id', periodId),
     supabase.from('evaluations').select('*').eq('period_id', periodId),
     supabase.from('auto_scores').select('*').eq('period_id', periodId),
-    supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'leadership'),
+    supabase.from('users').select('id, region').eq('role', 'leadership'),
   ])
 
   if (!period) return NextResponse.json({ error: 'Period not found' }, { status: 404 })
@@ -41,7 +67,7 @@ export async function GET(req: Request) {
   const matrixArr    = matrix      ?? []
   const evalsArr     = evaluations ?? []
   const autoScoresArr = autoScores ?? []
-  const leaderCount  = leaderCountResult.count ?? 0
+  const leadersArr   = leaders     ?? []
 
   // Fetch evaluation scores for submitted evaluations
   const submittedEvals = evalsArr.filter((e: { status: string }) => e.status === 'submitted')
@@ -52,57 +78,50 @@ export async function GET(req: Request) {
     evalScores = data ?? []
   }
 
-  // Compute results (mirrors logic in results/page.tsx)
-  const manualCriteria = criteriaArr.filter((c: { input_type: string }) => c.input_type !== 'auto')
-  const autoCriteria   = criteriaArr.filter((c: { input_type: string }) => c.input_type === 'auto')
-  const manualTotalWeight = manualCriteria.reduce((s: number, c: { weight: unknown }) => s + Number(c.weight), 0)
-
   const autoScoreMap = new Map<string, Map<string, number>>()
   for (const row of autoScoresArr as { dept_id: string; criteria_id: string; raw_score: unknown }[]) {
     if (!autoScoreMap.has(row.dept_id)) autoScoreMap.set(row.dept_id, new Map())
     autoScoreMap.get(row.dept_id)!.set(row.criteria_id, Number(row.raw_score))
   }
 
-  const results = deptsArr.map((dept: { id: string; name: string; code: string | null }) => {
-    const totalEvaluators = matrixArr.filter((m: { target_id: string }) => m.target_id === dept.id).length + leaderCount
+  const results = deptsArr.map((dept: { id: string; name: string; code: string | null; region?: string | null }) => {
+    const deptRegion = dept.region ?? DEFAULT_REGION
+    const deptCriteria = (criteriaArr as { id: string; input_type: string; weight: unknown; region?: string | null }[])
+      .filter(c => (c.region ?? DEFAULT_REGION) === deptRegion)
+    const regionCriteria = deptCriteria.length > 0 ? deptCriteria : (criteriaArr as { id: string; input_type: string; weight: unknown; region?: string | null }[]).filter(c => !c.region)
+    const totalEvaluators = matrixArr.filter((m: { target_id: string }) => m.target_id === dept.id).length +
+      leadersArr.filter((l: { region?: string | null }) => (l.region ?? DEFAULT_REGION) === deptRegion).length
     const received        = submittedEvals.filter((e: { target_id: string }) => e.target_id === dept.id)
     const receivedCount   = received.length
-    const receivedIds     = new Set(received.map((e: { id: string }) => e.id))
-    const deptScores      = evalScores.filter(s => receivedIds.has(s.evaluation_id as string))
     const deptAutoScores  = autoScoreMap.get(dept.id)
+    let weightedSum = 0
+    let hasAnyScore = false
 
-    const manualAvg = receivedCount > 0
-      ? received.reduce((sum: number, e: { total_score: number | null }) => sum + (e.total_score ?? 0), 0) / receivedCount
-      : null
-
-    const autoWeightedSum = autoCriteria.reduce((sum: number, c: { id: string; weight: unknown }) => {
-      const raw = deptAutoScores?.get(c.id) ?? null
-      return raw !== null ? sum + raw * Number(c.weight) : sum
-    }, 0)
-    const autoWeightCovered = autoCriteria.reduce((sum: number, c: { id: string; weight: unknown }) => {
-      return deptAutoScores?.has(c.id) ? sum + Number(c.weight) : sum
-    }, 0)
-
-    let avgScore: number | null = null
-    const effectiveTotalWeight = manualTotalWeight + autoWeightCovered
-    if (effectiveTotalWeight > 0 && (manualAvg !== null || autoWeightCovered > 0)) {
-      const manualContrib = manualAvg !== null ? manualAvg * manualTotalWeight : 0
-      avgScore = (manualContrib + autoWeightedSum) / effectiveTotalWeight
-    }
-
-    const criteriaAvg = criteriaArr.map((c: { id: string; input_type: string; weight: unknown }) => {
+    const criteriaAvg = regionCriteria.map((c: { id: string; input_type: string; weight: unknown }) => {
       if (c.input_type === 'auto') {
         const raw = deptAutoScores?.get(c.id) ?? null
+        if (raw !== null) {
+          hasAnyScore = true
+          weightedSum += raw * Number(c.weight)
+        }
         return { criteriaId: c.id, avgRaw: raw, avgWeighted: raw !== null ? raw * Number(c.weight) : null }
       }
-      const cScores = (deptScores as { criteria_id: string; raw_score: number | null; weighted_score: number | null }[])
-        .filter(s => s.criteria_id === c.id)
-      const avgRaw      = cScores.length > 0 ? cScores.reduce((sum, s) => sum + (s.raw_score ?? 0), 0) / cScores.length : null
-      const avgWeighted = cScores.length > 0 ? cScores.reduce((sum, s) => sum + (s.weighted_score ?? 0), 0) / cScores.length : null
-      return { criteriaId: c.id, avgRaw, avgWeighted }
+      const values = received
+        .map((e: { id: string }) => (evalScores as { evaluation_id: string; criteria_id: string; raw_score: number | null }[])
+          .find(row => row.evaluation_id === e.id && row.criteria_id === c.id)?.raw_score)
+        .filter((raw): raw is number => raw != null)
+        .map(Number)
+      const avgRaw = values.length > 0 ? values.reduce((sum, raw) => sum + raw, 0) / values.length : null
+      if (avgRaw !== null) {
+        hasAnyScore = true
+        weightedSum += avgRaw * Number(c.weight)
+      }
+      return { criteriaId: c.id, avgRaw, avgWeighted: avgRaw !== null ? avgRaw * Number(c.weight) : null }
     })
+    const totalWeight = regionCriteria.reduce((sum: number, c: { weight: unknown }) => sum + Number(c.weight), 0)
+    const avgScore = totalWeight > 0 && hasAnyScore ? weightedSum / totalWeight : null
 
-    return { id: dept.id, name: dept.name, code: dept.code, rank: 0, avgScore, receivedCount, totalEvaluators, criteriaAvg, isMyDept: false }
+    return { id: dept.id, name: dept.name, code: dept.code, region: deptRegion, rank: 0, avgScore, receivedCount, totalEvaluators, criteriaAvg, isMyDept: false }
   })
 
   results
@@ -147,6 +166,29 @@ export async function POST(req: Request) {
   if (!periodId) return NextResponse.json({ error: 'Missing periodId' }, { status: 400 })
 
   const supabase = createServiceClient()
+
+  try {
+    const completion = await getEvaluationCompletion(supabase, periodId)
+    if (completion.incomplete.length > 0) {
+      const pairs = completion.incomplete
+        .slice(0, 50)
+        .map(task => `${task.evaluatorName} -> ${task.targetName}`)
+      return NextResponse.json(
+        {
+          error: completionErrorMessage(completion.incomplete.length),
+          incomplete: pairs,
+          totalRequired: completion.totalRequired,
+          submittedRequired: completion.submittedRequired,
+        },
+        { status: 422 }
+      )
+    }
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Không kiểm tra được tiến độ đánh giá.' },
+      { status: 500 }
+    )
+  }
 
   // Remove operational/notification data (not needed for results)
   await supabase.from('notification_reads').delete().not('id', 'is', null)

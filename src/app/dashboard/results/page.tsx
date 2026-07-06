@@ -4,6 +4,57 @@ import { createServiceClient } from '@/lib/supabase/server'
 import ResultsClient from './ResultsClient'
 import type { DeptResult, CriterionInfo } from './ResultsClient'
 
+type CriterionWithRegion = CriterionInfo & { region?: string | null }
+type SubmittedEvaluation = { id: string; target_id: string; total_score?: number | null; period_id?: string }
+type ScoreRow = { evaluation_id: string; criteria_id: string; raw_score: number | null; weighted_score?: number | null }
+
+const DEFAULT_REGION = 'Miền Bắc'
+
+function criteriaForRegion(criteria: CriterionWithRegion[], region: string) {
+  const regional = criteria.filter(c => (c.region ?? DEFAULT_REGION) === region)
+  return regional.length > 0 ? regional : criteria.filter(c => !c.region)
+}
+
+function computeCriteriaScore(
+  regionCriteria: CriterionWithRegion[],
+  received: SubmittedEvaluation[],
+  rawScores: ScoreRow[],
+  deptAutoScores: Map<string, number> | undefined
+) {
+  const scoreMap = new Map(rawScores.map(s => [`${s.evaluation_id}:${s.criteria_id}`, s]))
+  let weightedSum = 0
+  let hasAnyScore = false
+
+  const criteriaAvg = regionCriteria.map(c => {
+    if (c.input_type === 'auto') {
+      const raw = deptAutoScores?.get(c.id) ?? null
+      if (raw !== null) {
+        hasAnyScore = true
+        weightedSum += raw * c.weight
+      }
+      return { criteriaId: c.id, avgRaw: raw, avgWeighted: raw !== null ? raw * c.weight : null }
+    }
+
+    const values = received
+      .map(e => scoreMap.get(`${e.id}:${c.id}`)?.raw_score)
+      .filter((raw): raw is number => raw != null)
+      .map(Number)
+    const avgRaw = values.length > 0
+      ? values.reduce((sum, raw) => sum + raw, 0) / values.length
+      : null
+
+    if (avgRaw !== null) {
+      hasAnyScore = true
+      weightedSum += avgRaw * c.weight
+    }
+    return { criteriaId: c.id, avgRaw, avgWeighted: avgRaw !== null ? avgRaw * c.weight : null }
+  })
+
+  const totalWeight = regionCriteria.reduce((sum, c) => sum + c.weight, 0)
+  const avgScore = totalWeight > 0 && hasAnyScore ? weightedSum / totalWeight : null
+  return { avgScore, criteriaAvg }
+}
+
 export default async function ResultsPage({
   searchParams,
 }: {
@@ -60,15 +111,15 @@ export default async function ResultsPage({
   }
 
   // Shared queries
-  const [deptsResult, leaderCountResult] = await Promise.all([
+  const [deptsResult, leadersResult] = await Promise.all([
     supabase.from('departments').select('id, name, code, region').order('name'),
-    supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'leadership'),
+    supabase.from('users').select('id, region').eq('role', 'leadership'),
   ])
-  const depts       = deptsResult.data ?? []
-  const leaderCount = leaderCountResult.count ?? 0
+  const depts   = deptsResult.data ?? []
+  const leaders = leadersResult.data ?? []
 
   let results: DeptResult[]
-  let criteria: CriterionInfo[]
+  let criteria: CriterionWithRegion[]
   let totalSubmitted: number
   let periodLabel: string
   let periodStatus: string
@@ -91,7 +142,7 @@ export default async function ResultsPage({
     activePeriodId = period.id
 
     const [criteriaResult, matrixResult, evalsResult] = await Promise.all([
-      supabase.from('criteria').select('id, code, name, weight, input_type').eq('period_id', period.id).order('display_order'),
+      supabase.from('criteria').select('id, code, name, weight, input_type, region').eq('period_id', period.id).order('display_order'),
       supabase.from('evaluation_matrix').select('evaluator_id, target_id').eq('period_id', period.id),
       supabase.from('evaluations').select('id, target_id, total_score').eq('period_id', period.id).eq('status', 'submitted'),
     ])
@@ -99,14 +150,11 @@ export default async function ResultsPage({
     criteria = (criteriaResult.data ?? []).map(c => ({
       id: c.id, code: c.code, name: c.name, weight: Number(c.weight),
       input_type: c.input_type as 'manual' | 'auto',
+      region: c.region ?? null,
     }))
     const matrix    = matrixResult.data ?? []
     const submitted = evalsResult.data ?? []
     totalSubmitted  = submitted.length
-
-    const manualCriteria    = criteria.filter(c => c.input_type !== 'auto')
-    const autoCriteria      = criteria.filter(c => c.input_type === 'auto')
-    const manualTotalWeight = manualCriteria.reduce((s, c) => s + c.weight, 0)
 
     const evalIds = submitted.map(e => e.id)
     let rawScores: { evaluation_id: string; criteria_id: string; raw_score: number | null; weighted_score: number | null }[] = []
@@ -130,41 +178,14 @@ export default async function ResultsPage({
     }
 
     results = depts.map(dept => {
-      const totalEvaluators = matrix.filter(m => m.target_id === dept.id).length + leaderCount
+      const deptRegion = dept.region ?? DEFAULT_REGION
+      const regionCriteria = criteriaForRegion(criteria, deptRegion)
+      const totalEvaluators = matrix.filter(m => m.target_id === dept.id).length +
+        leaders.filter(l => (l.region ?? DEFAULT_REGION) === deptRegion).length
       const received        = submitted.filter(e => e.target_id === dept.id)
       const receivedCount   = received.length
-      const receivedIds     = new Set(received.map(e => e.id))
-      const deptScores      = rawScores.filter(s => receivedIds.has(s.evaluation_id))
       const deptAutoScores  = autoScoreMap.get(dept.id)
-
-      const manualAvg = receivedCount > 0
-        ? received.reduce((sum, e) => sum + (e.total_score ?? 0), 0) / receivedCount
-        : null
-
-      const autoWeightedSum = autoCriteria.reduce((sum, c) => {
-        const raw = deptAutoScores?.get(c.id) ?? null
-        return raw !== null ? sum + raw * c.weight : sum
-      }, 0)
-      const autoWeightCovered = autoCriteria.reduce((sum, c) =>
-        deptAutoScores?.has(c.id) ? sum + c.weight : sum, 0)
-
-      let avgScore: number | null = null
-      const effectiveTotalWeight = manualTotalWeight + autoWeightCovered
-      if (effectiveTotalWeight > 0 && (manualAvg !== null || autoWeightCovered > 0)) {
-        const manualContrib = manualAvg !== null ? manualAvg * manualTotalWeight : 0
-        avgScore = (manualContrib + autoWeightedSum) / effectiveTotalWeight
-      }
-
-      const criteriaAvg = criteria.map(c => {
-        if (c.input_type === 'auto') {
-          const raw = deptAutoScores?.get(c.id) ?? null
-          return { criteriaId: c.id, avgRaw: raw, avgWeighted: raw !== null ? raw * c.weight : null }
-        }
-        const cScores     = deptScores.filter(s => s.criteria_id === c.id)
-        const avgRaw      = cScores.length > 0 ? cScores.reduce((sum, s) => sum + (s.raw_score ?? 0), 0) / cScores.length : null
-        const avgWeighted = cScores.length > 0 ? cScores.reduce((sum, s) => sum + (s.weighted_score ?? 0), 0) / cScores.length : null
-        return { criteriaId: c.id, avgRaw, avgWeighted }
-      })
+      const { avgScore, criteriaAvg } = computeCriteriaScore(regionCriteria, received, rawScores, deptAutoScores)
 
       return {
         id: dept.id, name: dept.name, code: dept.code,
@@ -208,13 +229,22 @@ export default async function ResultsPage({
       totalSubmitted = 0
     } else {
       const [yCritRes, yEvalsRes, yAutoRes, yOverridesRes] = await Promise.all([
-        supabase.from('criteria').select('id, weight, input_type, period_id').in('period_id', yearPeriodIds),
+        supabase.from('criteria').select('id, weight, input_type, period_id, region').in('period_id', yearPeriodIds),
         supabase.from('evaluations').select('id, target_id, total_score, period_id').in('period_id', yearPeriodIds).eq('status', 'submitted'),
         supabase.from('auto_scores').select('dept_id, criteria_id, raw_score, period_id').in('period_id', yearPeriodIds),
         supabase.from('score_overrides').select('dept_id, score, period_id').in('period_id', yearPeriodIds),
       ])
 
       totalSubmitted = (yEvalsRes.data ?? []).length
+      const yEvalIds = (yEvalsRes.data ?? []).map(e => e.id)
+      let yScores: ScoreRow[] = []
+      if (yEvalIds.length > 0) {
+        const { data } = await supabase
+          .from('evaluation_scores')
+          .select('evaluation_id, criteria_id, raw_score')
+          .in('evaluation_id', yEvalIds)
+        yScores = data ?? []
+      }
 
       // Build override map: periodId → deptId → final score
       const yOverrideMap = new Map<string, Map<string, number>>()
@@ -228,13 +258,19 @@ export default async function ResultsPage({
 
       for (const yp of yearPeriods) {
         const periodOverrides = yOverrideMap.get(yp.id)
-        const pCrit  = (yCritRes.data ?? []).filter(c => c.period_id === yp.id)
+        const pCrit  = (yCritRes.data ?? [])
+          .filter(c => c.period_id === yp.id)
+          .map(c => ({
+            id: c.id,
+            code: null,
+            name: '',
+            weight: Number(c.weight),
+            input_type: c.input_type as 'manual' | 'auto',
+            region: c.region ?? null,
+          }))
         const pEvals = (yEvalsRes.data ?? []).filter(e => e.period_id === yp.id)
         const pAuto  = (yAutoRes.data ?? []).filter(a => a.period_id === yp.id)
-
-        const pManualCrit   = pCrit.filter(c => c.input_type !== 'auto')
-        const pAutoCrit     = pCrit.filter(c => c.input_type === 'auto')
-        const pManualWeight = pManualCrit.reduce((s, c) => s + Number(c.weight), 0)
+        const pScores = yScores.filter(s => pEvals.some(e => e.id === s.evaluation_id))
 
         const pAutoMap = new Map<string, Map<string, number>>()
         for (const a of pAuto) {
@@ -251,24 +287,9 @@ export default async function ResultsPage({
           }
 
           const received  = pEvals.filter(e => e.target_id === dept.id)
-          const manualAvg = received.length > 0
-            ? received.reduce((s, e) => s + (e.total_score ?? 0), 0) / received.length
-            : null
-
-          const deptAutoMap       = pAutoMap.get(dept.id)
-          const autoWeightedSum   = pAutoCrit.reduce((s, c) => {
-            const raw = deptAutoMap?.get(c.id) ?? null
-            return raw !== null ? s + raw * Number(c.weight) : s
-          }, 0)
-          const autoWeightCovered = pAutoCrit.reduce((s, c) =>
-            deptAutoMap?.has(c.id) ? s + Number(c.weight) : s, 0)
-
-          let avgScore: number | null = null
-          const eff = pManualWeight + autoWeightCovered
-          if (eff > 0 && (manualAvg !== null || autoWeightCovered > 0)) {
-            const manualContrib = manualAvg !== null ? manualAvg * pManualWeight : 0
-            avgScore = (manualContrib + autoWeightedSum) / eff
-          }
+          const deptAutoMap = pAutoMap.get(dept.id)
+          const regionCriteria = criteriaForRegion(pCrit, dept.region ?? DEFAULT_REGION)
+          const { avgScore } = computeCriteriaScore(regionCriteria, received, pScores, deptAutoMap)
           deptMap.set(dept.id, avgScore)
         }
         periodDeptScore.set(yp.id, deptMap)

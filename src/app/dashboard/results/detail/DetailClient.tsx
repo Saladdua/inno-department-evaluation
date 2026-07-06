@@ -135,15 +135,21 @@ export default function DetailClient({ periodLabel, criteria, targets, role, myR
         return { criteriaId: c.id, avgRaw: autoRaw, avgWeighted: autoRaw != null ? autoRaw * c.weight : null }
       }
       const rawVals = target.evaluators.map(e => e.scores.find(s => s.criteriaId === c.id)?.rawScore ?? null)
-      const wVals   = target.evaluators.map(e => e.scores.find(s => s.criteriaId === c.id)?.weightedScore ?? null)
-      return { criteriaId: c.id, avgRaw: avg(rawVals), avgWeighted: avg(wVals) }
+      const avgRaw = avg(rawVals)
+      return { criteriaId: c.id, avgRaw, avgWeighted: avgRaw != null ? avgRaw * c.weight : null }
     })
   }, [target, displayCriteria])
 
   const overallAvg = useMemo(() => {
-    if (!target || target.evaluators.length === 0) return null
-    return avg(target.evaluators.map(e => e.totalScore))
-  }, [target])
+    if (!target) return null
+    const totalWeight = displayCriteria.reduce((sum, c) => sum + c.weight, 0)
+    const hasAnyScore = target.evaluators.length > 0 || criteriaAvgs.some(c => c.avgRaw != null)
+    if (totalWeight <= 0 || !hasAnyScore) return null
+    return displayCriteria.reduce((sum, c) => {
+      const avgRaw = criteriaAvgs.find(a => a.criteriaId === c.id)?.avgRaw
+      return sum + (avgRaw ?? 0) * c.weight
+    }, 0) / totalWeight
+  }, [target, displayCriteria, criteriaAvgs])
 
   return (
     <div className="dt-root">

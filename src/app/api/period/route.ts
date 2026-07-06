@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/auth-helpers'
 import { createServiceClient } from '@/lib/supabase/server'
+import { completionErrorMessage, getEvaluationCompletion } from '@/lib/evaluation-completion'
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
@@ -119,6 +120,32 @@ export async function PUT(req: Request) {
     .select('status, quarter, year')
     .eq('id', id)
     .maybeSingle()
+
+  // Guard: all matrix assignments and all regional leadership evaluations must be submitted.
+  if (fields.status === 'closed' && previous?.status !== 'closed') {
+    try {
+      const completion = await getEvaluationCompletion(supabase, id)
+      if (completion.incomplete.length > 0) {
+        const pairs = completion.incomplete
+          .slice(0, 50)
+          .map(task => `${task.evaluatorName} -> ${task.targetName}`)
+        return NextResponse.json(
+          {
+            error: completionErrorMessage(completion.incomplete.length),
+            incomplete: pairs,
+            totalRequired: completion.totalRequired,
+            submittedRequired: completion.submittedRequired,
+          },
+          { status: 422 }
+        )
+      }
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : 'Không kiểm tra được tiến độ đánh giá.' },
+        { status: 500 }
+      )
+    }
+  }
 
   // Guard: block closing if any evaluation pair is not yet submitted
   if (fields.status === 'closed' && previous?.status !== 'closed') {

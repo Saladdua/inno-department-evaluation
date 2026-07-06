@@ -52,6 +52,7 @@ export interface LeaderCriterion {
   id: string
   code: string | null
   name: string
+  weight: number
   input_type: 'manual' | 'auto'
   region: string
 }
@@ -339,6 +340,7 @@ export default function StatusClient({
   const completionRate = overall.totalTasks > 0
     ? (overall.submittedCount / overall.totalTasks) * 100
     : 0
+  const canFinalizePeriod = overall.totalTasks > 0 && overall.submittedCount === overall.totalTasks
 
   const doneCount    = displayStats.filter(s => getStatus(s) === 'done').length
   const activeCount  = displayStats.filter(s => getStatus(s) === 'in_progress').length
@@ -502,7 +504,8 @@ export default function StatusClient({
             <button
               className="st-finalize-btn"
               onClick={handleArchivePeriod}
-              disabled={archiveStep !== null}
+              disabled={archiveStep !== null || !canFinalizePeriod}
+              title={!canFinalizePeriod ? 'Cần hoàn thành toàn bộ phiếu bắt buộc trước khi kết thúc kỳ.' : undefined}
             >
               <Archive size={13} />
               {archiveStep ?? 'Kết thúc & Lưu trữ'}

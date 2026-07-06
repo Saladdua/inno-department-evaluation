@@ -18,6 +18,7 @@ export interface CriterionInfo {
   name: string;
   weight: number;
   input_type: "manual" | "auto";
+  region?: string | null;
 }
 
 export interface CriterionAvg {
@@ -781,6 +782,14 @@ export default function ResultsClient({
     });
   }, [results, regionFilter, canManageAll, importedOverrides]);
 
+  const activeRegion = canManageAll
+    ? regionFilter
+    : (results.find((r) => r.isMyDept)?.region ?? regionFilter);
+  const displayCriteria = useMemo(() => {
+    const regional = criteria.filter((c) => (c.region ?? "Miền Bắc") === activeRegion);
+    return regional.length > 0 ? regional : criteria.filter((c) => !c.region);
+  }, [criteria, activeRegion]);
+
   const ranked = displayResults.filter((r) => r.avgScore != null);
   const unranked = displayResults.filter((r) => r.avgScore == null);
   const tableRows = [...ranked.filter((r) => r.rank > 3), ...unranked];
@@ -806,7 +815,7 @@ export default function ResultsClient({
   function handleDownloadHTML() {
     const html = generateHTML(
       displayResults,
-      criteria,
+      displayCriteria,
       periodLabel,
       maxScore,
       totalSubmitted,
@@ -817,7 +826,7 @@ export default function ResultsClient({
   }
 
   function handleDownloadXLS() {
-    const xls = generateXLS(displayResults, criteria, periodLabel, maxScore);
+    const xls = generateXLS(displayResults, displayCriteria, periodLabel, maxScore);
     const slug = periodLabel.replace(/[\s·]+/g, "_");
     triggerDownload(
       xls,
