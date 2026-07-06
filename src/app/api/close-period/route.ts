@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/auth-helpers'
 import { createServiceClient } from '@/lib/supabase/server'
 import { completionErrorMessage, getEvaluationCompletion } from '@/lib/evaluation-completion'
+import { fetchRowsByIds } from '@/lib/supabase-pagination'
 
 const DEFAULT_REGION = 'Miền Bắc'
 
@@ -74,8 +75,13 @@ export async function GET(req: Request) {
   const evalIds = submittedEvals.map((e: { id: string }) => e.id)
   let evalScores: Record<string, unknown>[] = []
   if (evalIds.length > 0) {
-    const { data } = await supabase.from('evaluation_scores').select('*').in('evaluation_id', evalIds)
-    evalScores = data ?? []
+    evalScores = await fetchRowsByIds<Record<string, unknown>>(
+      supabase,
+      'evaluation_scores',
+      '*',
+      'evaluation_id',
+      evalIds
+    )
   }
 
   const autoScoreMap = new Map<string, Map<string, number>>()

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { fetchRowsByIds } from '@/lib/supabase-pagination'
 
 const DEFAULT_REGION = 'Miền Bắc'
 
@@ -80,11 +81,13 @@ export async function GET(req: Request) {
   const evalIds = submitted.map(e => e.id)
   let rawScores: Score[] = []
   if (evalIds.length > 0) {
-    const { data } = await supabase
-      .from('evaluation_scores')
-      .select('evaluation_id, criteria_id, raw_score')
-      .in('evaluation_id', evalIds)
-    rawScores = data ?? []
+    rawScores = await fetchRowsByIds<Score>(
+      supabase,
+      'evaluation_scores',
+      'evaluation_id, criteria_id, raw_score',
+      'evaluation_id',
+      evalIds
+    )
   }
 
   const autoScoreMap = new Map<string, Map<string, number>>()

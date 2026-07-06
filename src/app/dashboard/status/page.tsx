@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { createServiceClient } from '@/lib/supabase/server'
+import { fetchRowsByIds } from '@/lib/supabase-pagination'
 import StatusClient from './StatusClient'
 import type { DeptStat, OverallStats, LeaderStat, LeaderCriterion, LeaderDeptResult, DeptCriterionScore } from './StatusClient'
 
@@ -195,11 +196,13 @@ export default async function StatusPage() {
 
       let evalScores: { evaluation_id: string; criteria_id: string; raw_score: number | null }[] = []
       if (evalIds.length > 0) {
-        const { data } = await supabase
-          .from('evaluation_scores')
-          .select('evaluation_id, criteria_id, raw_score')
-          .in('evaluation_id', evalIds)
-        evalScores = data ?? []
+        evalScores = await fetchRowsByIds<{ evaluation_id: string; criteria_id: string; raw_score: number | null }>(
+          supabase,
+          'evaluation_scores',
+          'evaluation_id, criteria_id, raw_score',
+          'evaluation_id',
+          evalIds
+        )
       }
 
       let autoScoresRegion: { dept_id: string; criteria_id: string; raw_score: number | null }[] = []
@@ -273,8 +276,13 @@ export default async function StatusPage() {
     const evalIds = submittedEvals.map(e => e.id)
     let evalScores: { evaluation_id: string; criteria_id: string; raw_score: number | null }[] = []
     if (evalIds.length > 0) {
-      const { data } = await supabase.from('evaluation_scores').select('evaluation_id, criteria_id, raw_score').in('evaluation_id', evalIds)
-      evalScores = data ?? []
+      evalScores = await fetchRowsByIds<{ evaluation_id: string; criteria_id: string; raw_score: number | null }>(
+        supabase,
+        'evaluation_scores',
+        'evaluation_id, criteria_id, raw_score',
+        'evaluation_id',
+        evalIds
+      )
     }
 
     let autoScoresDept: { criteria_id: string; raw_score: number | null }[] = []

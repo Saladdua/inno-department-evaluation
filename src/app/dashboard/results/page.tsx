@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
+import { fetchRowsByIds } from '@/lib/supabase-pagination'
 import ResultsClient from './ResultsClient'
 import type { DeptResult, CriterionInfo } from './ResultsClient'
 
@@ -159,11 +160,13 @@ export default async function ResultsPage({
     const evalIds = submitted.map(e => e.id)
     let rawScores: { evaluation_id: string; criteria_id: string; raw_score: number | null; weighted_score: number | null }[] = []
     if (evalIds.length > 0) {
-      const { data } = await supabase
-        .from('evaluation_scores')
-        .select('evaluation_id, criteria_id, raw_score, weighted_score')
-        .in('evaluation_id', evalIds)
-      rawScores = data ?? []
+      rawScores = await fetchRowsByIds<{ evaluation_id: string; criteria_id: string; raw_score: number | null; weighted_score: number | null }>(
+        supabase,
+        'evaluation_scores',
+        'evaluation_id, criteria_id, raw_score, weighted_score',
+        'evaluation_id',
+        evalIds
+      )
     }
 
     const { data: autoScoresData } = await supabase
@@ -239,11 +242,13 @@ export default async function ResultsPage({
       const yEvalIds = (yEvalsRes.data ?? []).map(e => e.id)
       let yScores: ScoreRow[] = []
       if (yEvalIds.length > 0) {
-        const { data } = await supabase
-          .from('evaluation_scores')
-          .select('evaluation_id, criteria_id, raw_score')
-          .in('evaluation_id', yEvalIds)
-        yScores = data ?? []
+        yScores = await fetchRowsByIds<ScoreRow>(
+          supabase,
+          'evaluation_scores',
+          'evaluation_id, criteria_id, raw_score',
+          'evaluation_id',
+          yEvalIds
+        )
       }
 
       // Build override map: periodId → deptId → final score
