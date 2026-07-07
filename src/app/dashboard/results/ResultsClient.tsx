@@ -7,6 +7,7 @@ import {
   Table2,
   Lock,
   Upload,
+  Download,
   X,
   Copy,
   Check,
@@ -533,6 +534,47 @@ export function generateXLS(
 </Workbook>`;
 }
 
+export function generateCSV(
+  results: DeptResult[],
+  criteria: CriterionInfo[],
+  maxScore: number,
+) {
+  const q = (v: string) =>
+    /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+
+  const header = [
+    "Hạng",
+    "Phòng ban",
+    "Miền",
+    "Điểm cuối cùng",
+    "Tỷ lệ %",
+    "Số phiếu",
+    ...criteria.map((c) => `${c.code ?? c.name} (×${c.weight})`),
+  ];
+  const lines = [header.map(q).join(",")];
+
+  for (const r of results) {
+    lines.push(
+      [
+        r.avgScore != null ? String(r.rank) : "",
+        r.code ?? r.name,
+        r.region ?? "",
+        r.avgScore != null ? r.avgScore.toFixed(2) : "",
+        r.avgScore != null ? pct(r.avgScore, maxScore).toFixed(1) : "",
+        `${r.receivedCount}/${r.totalEvaluators}`,
+        ...criteria.map((c) => {
+          const avg = r.criteriaAvg.find((a) => a.criteriaId === c.id);
+          return avg?.avgWeighted != null ? avg.avgWeighted.toFixed(2) : "";
+        }),
+      ]
+        .map(q)
+        .join(","),
+    );
+  }
+
+  return lines.join("\r\n");
+}
+
 export function triggerDownload(
   content: string,
   filename: string,
@@ -835,6 +877,12 @@ export default function ResultsClient({
     );
   }
 
+  function handleDownloadCSV() {
+    const csv = generateCSV(displayResults, displayCriteria, maxScore);
+    const slug = `${periodLabel}_${activeRegion}`.replace(/[\s·]+/g, "_");
+    triggerDownload(csv, `ket_qua_${slug}.csv`, "text/csv;charset=utf-8");
+  }
+
   const [copyDone, setCopyDone] = useState(false);
 
   function handleCopyLink() {
@@ -909,6 +957,15 @@ export default function ResultsClient({
             )}
           </div>
           <div className="rs-header-right">
+            {canManageAll && displayResults.length > 0 && (
+              <button
+                className="rs-dl-btn rs-dl-btn--xls"
+                onClick={handleDownloadCSV}
+                title="Tải kết quả cuối cùng của các nhóm dạng CSV"
+              >
+                <Download size={13} /> Xuất CSV
+              </button>
+            )}
             {canManageAll && (
               <button
                 className={`rs-dl-btn rs-copy-btn${copyDone ? " rs-copy-btn--done" : ""}`}
