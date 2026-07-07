@@ -175,10 +175,20 @@ function matchDeptTS(name: string, departments: Department[]): Department | unde
   return found ?? matchDeptByAlias(name, departments) ?? matchDeptByAlias(stripDeptPrefix(name), departments)
 }
 
+/* Parse numbers that may arrive as Vietnamese-formatted strings: "4.936,5" → 4936.5 */
+function parseVNNumber(v: unknown): number {
+  if (typeof v === 'number') return isNaN(v) ? 0 : v
+  let s = String(v ?? '').trim()
+  if (!s) return 0
+  if (/,\d+$/.test(s)) s = s.replace(/\./g, '').replace(',', '.')
+  else s = s.replace(/,/g, '')
+  const n = Number(s)
+  return isNaN(n) ? 0 : n
+}
+
 function numVal(row: SheetRow, idx: number): number {
   if (idx < 0 || idx >= row.length) return 0
-  const n = Number(row[idx])
-  return isNaN(n) ? 0 : n
+  return parseVNNumber(row[idx])
 }
 
 function parseTimesheetFile(
@@ -190,26 +200,18 @@ function parseTimesheetFile(
   // Row 2 (index 1): contains "Công chuẩn"
   const headerR1 = (rows[1] ?? []).map(c => normalise(String(c ?? '')))
   const colCC = headerR1.indexOf(normalise('Công chuẩn'))
-  if (colCC < 0) throw new Error('Không tìm thấy cột "Công chuẩn"')
+  if (colCC < 0) throw new Error('Không tìm thấy cột "Công chuẩn" — file không đúng định dạng Bảng chấm công')
 
-  // Row 3 (index 2): date pattern cells tell us the daily attendance range
-  // Daily columns start at J (index 9); scan forward for DD/MM formatted cells
   const rawRow3 = rows[2] ?? []
-  let dailyCount = 0
-  for (let c = 9; c < rawRow3.length; c++) {
-    if (/^\d{1,2}\/\d{1,2}$/.test(String(rawRow3[c] ?? '').trim())) {
-      dailyCount++
-    } else if (dailyCount > 0) {
-      break  // hit non-date after date run → end of daily section
-    }
-  }
-  const monthDays = dailyCount > 0 ? dailyCount : 31
+  const headerR3norm = rawRow3.map(c => normalise(String(c ?? '')))
 
-  // Công lễ column: BU (index 72) for Jan/Mar (31 days), BR (index 69) for Feb (28 days)
-  const colCL = monthDays === 28 ? 69 : 72
+  // Công lễ: column position shifts with the month's day count (71 for 30-day
+  // months, 72 for 31, 69 for Feb), so locate the header by name instead of index
+  let colCL = headerR3norm.indexOf(normalise('Công lễ'))
+  if (colCL < 0) colCL = headerR1.indexOf(normalise('Công lễ'))
+  if (colCL < 0) throw new Error('Không tìm thấy cột "Công lễ"')
 
   // Leave-type columns: find NTC…NTS anywhere in row 3 headers (shifts with month)
-  const headerR3norm = rawRow3.map(c => normalise(String(c ?? '')))
   const colLTs = TS_LEAVE_TYPES.map(lt => headerR3norm.indexOf(normalise(lt))).filter(i => i >= 0)
 
   const deptEmp   = new Map<string, Map<string, TSAccum>>()
@@ -240,8 +242,8 @@ function parseTimesheetFile(
 
     const acc: TSAccum = {
       congChuan: numVal(row, colCC),
-      congLe:    numVal(row, colCL),                                    // SUM(BU) or SUM(BR) for Feb
-      congNghi:  colLTs.reduce((s, idx) => s + numVal(row, idx), 0),   // SUM(AZ:BL)
+      congLe:    numVal(row, colCL),
+      congNghi:  colLTs.reduce((s, idx) => s + numVal(row, idx), 0),   // SUM of leave-type columns
       tongGio:   0,                                                      // from BC Timesheet
     }
 
@@ -299,7 +301,7 @@ function parseTSheetBC(
       if (!unmatched.includes(deptRaw)) unmatched.push(deptRaw)
       continue
     }
-    hoursPerDept[dept.code] = (hoursPerDept[dept.code] ?? 0) + Number(row[colHrs] || 0)
+    hoursPerDept[dept.code] = (hoursPerDept[dept.code] ?? 0) + parseVNNumber(row[colHrs])
   }
 
   const result: TSFileResult = {}
@@ -316,14 +318,24 @@ interface TSScoreDetail {
 }
 
 // score = min(100, u / t × 100)  where t = (Σcc − Σcl − Σcn) × 8
-function computeTimesheetScores(fileResults: TSFileResult[]): {
+// Only departments present in the BC Timesheet file are scored — the rest are
+// reported in `noHours` and left untouched in the database.
+function computeTimesheetScores(fileResults: TSFileResult[], codesWithHours: Set<string>): {
   scores: Record<string, number>
   details: Record<string, TSScoreDetail>
+  excluded: { code: string; cc: number; cl: number; cn: number; tongGio: number }[]
+  noHours: string[]
 } {
   const allCodes = new Set(fileResults.flatMap(r => Object.keys(r)))
   const scores:  Record<string, number>        = {}
   const details: Record<string, TSScoreDetail> = {}
+  const excluded: { code: string; cc: number; cl: number; cn: number; tongGio: number }[] = []
+  const noHours: string[] = []
   for (const code of allCodes) {
+    if (!codesWithHours.has(code)) {
+      noHours.push(code)
+      continue
+    }
     let cc = 0, cl = 0, cn = 0, tg = 0
     for (const fr of fileResults) {
       const a = fr[code]
@@ -334,12 +346,15 @@ function computeTimesheetScores(fileResults: TSFileResult[]): {
       tg += a.tongGio
     }
     const d = cc - cl - cn
-    if (d <= 0) continue
+    if (d <= 0) {
+      excluded.push({ code, cc, cl, cn, tongGio: tg })
+      continue
+    }
     const t = d * 8
     scores[code]  = Math.min(100, Math.round((tg / t) * 100))
     details[code] = { score: scores[code], t, u: tg }
   }
-  return { scores, details }
+  return { scores, details, excluded, noHours }
 }
 
 const COL_DEPT   = 'Tên phòng ban'
@@ -1100,16 +1115,20 @@ export default function DataProcessingClient({
           const rows = await readWorkbookRaw(file)
           const addUnmatched = (u: string[]) => { for (const s of u) { if (!allUnmatched.includes(s)) allUnmatched.push(s) } }
 
-          if (isBCTimesheetFormat(rows)) {
-            const { result, unmatched } = parseTSheetBC(rows, departments)
-            tsResults.push(result)
-            addUnmatched(unmatched)
-            fileLines.push(`${file.name}: BC Timesheet — ${Object.keys(result).length} phòng ban`)
-          } else {
-            const { result, unmatched } = parseTimesheetFile(rows, departments)
-            ccFiles.push({ label: monthLabel(file.name), result })
-            addUnmatched(unmatched)
-            fileLines.push(`${file.name}: Chấm công — ${Object.keys(result).length} phòng ban`)
+          try {
+            if (isBCTimesheetFormat(rows)) {
+              const { result, unmatched } = parseTSheetBC(rows, departments)
+              tsResults.push(result)
+              addUnmatched(unmatched)
+              fileLines.push(`${file.name}: BC Timesheet — ${Object.keys(result).length} phòng ban`)
+            } else {
+              const { result, unmatched } = parseTimesheetFile(rows, departments)
+              ccFiles.push({ label: monthLabel(file.name), result })
+              addUnmatched(unmatched)
+              fileLines.push(`${file.name}: Chấm công — ${Object.keys(result).length} phòng ban`)
+            }
+          } catch (err) {
+            throw new Error(`${file.name}: ${err instanceof Error ? err.message : String(err)}`)
           }
         }
 
@@ -1128,7 +1147,8 @@ export default function DataProcessingClient({
         })
         const mergedResults: TSFileResult[] = [...ccZeroed, ...tsResults]
 
-        const { scores, details } = computeTimesheetScores(mergedResults)
+        const codesWithHours = new Set(tsResults.flatMap(r => Object.keys(r)))
+        const { scores, details, excluded, noHours } = computeTimesheetScores(mergedResults, codesWithHours)
         const lines: string[] = [...fileLines, '']
 
         // Collect u (tongGio) per dept from all ts files
@@ -1166,6 +1186,18 @@ export default function DataProcessingClient({
               `  Giờ làm việc TT: ${d.t.toLocaleString('vi')}  |  Giờ khai TS: ${d.u.toLocaleString('vi')}`,
             )
           })
+
+        if (noHours.length > 0) {
+          lines.push('', `⚠ Không có trong file BC Timesheet — bỏ qua, giữ nguyên điểm cũ (${noHours.length}): ${noHours.sort().join(', ')}`)
+        }
+
+        if (excluded.length > 0) {
+          lines.push('', `⚠ Bị loại vì không có công chuẩn trong file chấm công (${excluded.length}):`)
+          for (const x of excluded) {
+            const dept = departments.find(d => d.code === x.code)
+            lines.push(`  - ${dept?.name ?? x.code}: công chuẩn=${x.cc}, công lễ=${x.cl}, công nghỉ=${x.cn}, giờ khai TS=${x.tongGio}`)
+          }
+        }
 
         if (allUnmatched.length > 0) {
           lines.push('', `⚠ Không khớp (${allUnmatched.length}):`, ...allUnmatched.map(u => `  - ${u}`))
