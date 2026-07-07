@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
+import { fetchRowsByIds } from '@/lib/supabase-pagination'
 import DetailClient from './DetailClient'
 import type { CriterionInfo, EvaluatorEntry, TargetData } from './DetailClient'
 
@@ -63,7 +64,7 @@ export default async function ResultsDetailPage({
 
   let myRegion: string | null = null
 
-  const [criteriaResult, deptsResult, evalsResult, autoScoresResult] = await Promise.all([
+  const [criteriaResult, deptsResult, evalsResult, autoScoresResult, leadersResult] = await Promise.all([
     supabase.from('criteria').select('id, code, name, weight, region, input_type').eq('period_id', period.id).order('display_order'),
     supabase.from('departments').select('id, name, code, region').order('name'),
     supabase
@@ -72,6 +73,7 @@ export default async function ResultsDetailPage({
       .eq('period_id', period.id)
       .eq('status', 'submitted'),
     supabase.from('auto_scores').select('dept_id, criteria_id, raw_score').eq('period_id', period.id),
+    supabase.from('users').select('id, name').eq('role', 'leadership'),
   ])
 
   const criteria: CriterionInfo[] = (criteriaResult.data ?? []).map(c => ({
@@ -86,6 +88,7 @@ export default async function ResultsDetailPage({
     autoScoreMap.get(row.dept_id)!.push({ criteriaId: row.criteria_id, rawScore: row.raw_score })
   }
   const depts = deptsResult.data ?? []
+  const leaderById = new Map((leadersResult.data ?? []).map(l => [l.id as string, l.name as string]))
 
   // Derive department user's region from their dept record
   if (role === 'department' && myDeptId) {
@@ -97,11 +100,13 @@ export default async function ResultsDetailPage({
   const evalIds = submitted.map(e => e.id)
   let rawScores: { evaluation_id: string; criteria_id: string; raw_score: number | null; weighted_score: number | null }[] = []
   if (evalIds.length > 0) {
-    const { data } = await supabase
-      .from('evaluation_scores')
-      .select('evaluation_id, criteria_id, raw_score, weighted_score')
-      .in('evaluation_id', evalIds)
-    rawScores = data ?? []
+    rawScores = await fetchRowsByIds<{ evaluation_id: string; criteria_id: string; raw_score: number | null; weighted_score: number | null }>(
+      supabase,
+      'evaluation_scores',
+      'evaluation_id, criteria_id, raw_score, weighted_score',
+      'evaluation_id',
+      evalIds
+    )
   }
 
   // Group submitted evaluations by target, then by evaluator
@@ -110,11 +115,12 @@ export default async function ResultsDetailPage({
     if (!targetMap.has(ev.target_id)) targetMap.set(ev.target_id, [])
     const evScores = rawScores.filter(s => s.evaluation_id === ev.id)
     const evaluatorDept = depts.find(d => d.id === ev.evaluator_id)
+    const leaderName = evaluatorDept ? null : leaderById.get(ev.evaluator_id)
 
     targetMap.get(ev.target_id)!.push({
       evaluatorId:   ev.evaluator_id,
       evaluatorCode: evaluatorDept?.code ?? null,
-      evaluatorName: evaluatorDept?.name ?? ev.evaluator_id,
+      evaluatorName: evaluatorDept?.name ?? (leaderName ? `${leaderName} (Lãnh đạo)` : ev.evaluator_id),
       totalScore:    ev.total_score,
       scores: evScores.map(s => ({
         criteriaId:    s.criteria_id,
